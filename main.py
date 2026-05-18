@@ -23,7 +23,7 @@ def main(page: ft.Page) -> None:
         color="#F5F5F5",
     )
     detail_text = ft.Text(
-        "Đang chuẩn bị pyvideotrans. Lần đầu chạy cần có kết nối mạng để tải vendor.",
+        "Đang chuẩn bị thư viện. Cần có kết nối mạng để tải thư viện...",
         size=13,
         color="#BDBDBD",
         text_align=ft.TextAlign.CENTER,
