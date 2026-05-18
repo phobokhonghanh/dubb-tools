@@ -17,6 +17,10 @@ env/
 .env.*
 config/*.json
 
+# Docs (keep only context)
+docs/**
+!docs/context.md
+
 # Generated media and pipeline outputs
 resources/layer/
 vendor/

@@ -25,16 +25,15 @@ Feature hiện có:
 Các file chính:
 
 - `utils/download.py`: core download logic, streaming/chunking, proxy env, callback progress.
-- `download.py`: wrapper tương thích CLI cũ, re-export từ `utils.download`.
 - `app/services/download_service.py`: single-job execution cho download.
 - `app/features/download_view.py`: UI tải file.
 
 Các thay đổi đã làm:
 
-- Refactor `download.py` thành core reusable trong `utils/download.py`.
+- Refactor logic tải thành core reusable trong `utils/download.py`.
 - Thêm `DownloadProgress` và `DownloadResult`.
 - Hỗ trợ `on_progress`, `on_success`, `on_error`, `stop_event`.
-- Vẫn giữ CLI cũ hoạt động qua `download.py`.
+- CLI cũ đã được lưu vào `docs/code` để tham khảo; app hiện tại chạy theo kiến trúc UI + service + utils.
 - Cho phép chọn thư mục lưu bằng dialog native OS.
 - Ưu tiên `zenity` trên Linux, fallback sang `PySide6 QFileDialog`.
 - Không dùng `Flet FilePicker` vì runtime hiện tại báo `Unknown control: FilePicker`.

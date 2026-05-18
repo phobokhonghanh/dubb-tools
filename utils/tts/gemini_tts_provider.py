@@ -7,8 +7,8 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
-from create_audio import build_content_text, convert_to_wav
 from utils.tts.base import BaseTTS
+from utils.tts.gemini_audio import build_content_text, convert_to_wav
 from utils.tts.models import GEMINI_TTS_MODEL, GEMINI_VOICES, TtsVoice
 
 
