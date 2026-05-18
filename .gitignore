@@ -1,0 +1,35 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venb/
+.venv/
+venv/
+env/
+
+# Local environment and secrets
+.env
+.env.*
+config/*.json
+
+# Generated media and pipeline outputs
+resources/layer/
+vendor/
+*.part
+*.tmp
+.merge_tmp_*/
+*_segments/
+
+# Logs
+*.log
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

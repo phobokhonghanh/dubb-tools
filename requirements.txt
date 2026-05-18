@@ -1,0 +1,10 @@
+requests
+flet
+faster-whisper
+moviepy
+piper-tts
+google-genai
+PySide6_Essentials
+sherpa-onnx
+soundfile
+edge-tts
