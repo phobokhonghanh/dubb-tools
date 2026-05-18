@@ -11,6 +11,8 @@ import sherpa_onnx
 import soundfile as sf
 from moviepy import VideoFileClip
 
+from utils.vendor_bootstrap import check_pyvideotrans_vendor, format_vendor_error
+
 
 DEFAULT_OUTPUT_DIR = Path("resources/layer/process")
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov"}
@@ -57,6 +59,11 @@ def validate_video_path(video_path: str | Path) -> Path:
 
 
 def get_model_paths(models_dir: str | Path = V2_MODELS_DIR) -> tuple[Path, Path]:
+    if Path(models_dir) == V2_MODELS_DIR:
+        status = check_pyvideotrans_vendor()
+        if not status.ready:
+            raise FileNotFoundError(format_vendor_error(status))
+
     base = Path(models_dir).expanduser()
     vocals = base / VOCALS_MODEL
     background = base / BACKGROUND_MODEL
@@ -64,7 +71,7 @@ def get_model_paths(models_dir: str | Path = V2_MODELS_DIR) -> tuple[Path, Path]
         raise FileNotFoundError(
             "Thiếu model tách nguồn âm thanh. Cần có "
             f"{vocals} và {background}. "
-            "Hãy chạy: rtk ./venb/bin/python scripts/ensure_vendor.py"
+            "App sẽ tự chuẩn bị vendor khi khởi động; hãy kiểm tra kết nối mạng nếu lỗi vẫn xảy ra."
         )
     return vocals, background
 
@@ -168,6 +175,10 @@ def split_video_audio(
         vocals_path = out_dir / f"{stem}_vocals.wav"
         background_path = out_dir / f"{stem}_background.wav"
         raw_audio_path = out_dir / f"{stem}_raw_audio.wav"
+
+        _check_stop(stop_event)
+        _emit(on_progress, stage="prepare_vendor", message="Đang kiểm tra vendor pyvideotrans...", percent=None)
+        get_model_paths(models_dir)
 
         _check_stop(stop_event)
         _emit(on_progress, stage="extract_audio", message="Đang trích xuất audio...", percent=None)

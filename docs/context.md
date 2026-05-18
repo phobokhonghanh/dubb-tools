@@ -300,7 +300,16 @@ Model v2 đang đọc từ:
 - `vendor/pyvideotrans/models/onnx/vocals.fp16.onnx`
 - `vendor/pyvideotrans/models/onnx/accompaniment.fp16.onnx`
 
-Vendor hiện được chuẩn hóa là dependency local, không commit vào Git. Khi clone project trên máy mới, chạy:
+Vendor hiện được chuẩn hóa là dependency local, không commit vào Git. Khi mở app, `main.py` hiển thị màn hình `Ứng dụng đang khởi động...` và tự chuẩn bị `vendor/pyvideotrans` trước khi cho người dùng vào UI chính.
+
+Runtime bootstrap:
+
+- Nếu vendor đã sẵn sàng, app vào UI ngay.
+- Nếu chưa có `vendor/pyvideotrans`, app clone từ `https://github.com/jianchang512/pyvideotrans.git`.
+- Nếu máy không có Git, app fallback tải ZIP từ GitHub và giải nén.
+- Nếu thiếu mạng hoặc vendor bị thiếu file bắt buộc, app hiển thị lỗi và nút `Thử lại`.
+
+Script thủ công vẫn được giữ cho developer muốn kiểm tra trước:
 
 ```bash
 rtk ./venb/bin/python scripts/ensure_vendor.py
@@ -312,19 +321,18 @@ rtk ./venb/bin/python scripts/ensure_vendor.py
 rtk ./venb/bin/python scripts/ensure_vendor.py --check
 ```
 
-Script sẽ bỏ qua clone nếu `vendor/pyvideotrans` đã tồn tại, và validate các file bắt buộc gồm code `prepare_audio.py` cùng 2 model ONNX.
+Script/runtime sẽ bỏ qua clone nếu `vendor/pyvideotrans` đã tồn tại, và validate các file bắt buộc gồm code `prepare_audio.py` cùng 2 model ONNX.
 
 Không nên xóa `vendor/` hiện tại vì:
 
 - `utils/video_splitter.py` đang dùng model trong `vendor/pyvideotrans/models/onnx`.
-- `pipeline_executor.py` đang thêm `vendor/pyvideotrans` vào `sys.path`.
-- `pipeline_executor.py` import `videotrans.process.prepare_audio`, nên còn phụ thuộc code trong vendor.
+- App runtime đang dùng model trong vendor cho V2/V7.
 
 Nếu muốn dọn repo sau này:
 
 - Chuyển model sang `models/onnx/`.
 - Sửa `V2_MODELS_DIR` trong `utils/video_splitter.py`.
-- Kiểm tra và thay thế dependency `videotrans` trong `pipeline_executor.py` trước khi xóa `vendor`.
+- Kiểm tra và thay thế dependency model trong `utils/video_splitter.py` trước khi xóa `vendor`.
 
 ## Flet version notes
 
