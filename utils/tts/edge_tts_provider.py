@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -21,6 +23,7 @@ EDGE_FALLBACK_VOICES = [
 class EdgeTTSProvider(BaseTTS):
     provider_id = "edge-tts"
     _voice_cache: list[TtsVoice] | None = None
+    max_chunk_chars = 240
 
     def list_voices(self, language: str | None = None) -> list[TtsVoice]:
         try:
@@ -67,14 +70,169 @@ class EdgeTTSProvider(BaseTTS):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         rate_str = _format_percent(rate)
         volume_str = _format_percent(volume)
-        communicate = edge_tts.Communicate(text=text, voice=voice_id, rate=rate_str, volume=volume_str)
-        _run_async(communicate.save, str(output_path))
+        chunks = _split_text(text, self.max_chunk_chars)
+        if len(chunks) == 1:
+            _save_edge_chunk(
+                edge_tts=edge_tts,
+                text=chunks[0],
+                voice_id=voice_id,
+                rate=rate_str,
+                volume=volume_str,
+                output_path=output_path,
+            )
+            _ensure_audio_file(output_path)
+            return output_path
+
+        chunk_paths: list[Path] = []
+        for index, chunk in enumerate(chunks, start=1):
+            chunk_path = output_path.with_name(f"{output_path.stem}_part_{index:02d}{output_path.suffix}")
+            _save_edge_chunk(
+                edge_tts=edge_tts,
+                text=chunk,
+                voice_id=voice_id,
+                rate=rate_str,
+                volume=volume_str,
+                output_path=chunk_path,
+            )
+            _ensure_audio_file(chunk_path)
+            chunk_paths.append(chunk_path)
+            time.sleep(0.25)
+
+        _concat_audio(chunk_paths, output_path)
+        _ensure_audio_file(output_path)
         return output_path
 
 
 def _format_percent(value: int) -> str:
     sign = "+" if value >= 0 else ""
     return f"{sign}{int(value)}%"
+
+
+def _save_edge_chunk(
+    *,
+    edge_tts,
+    text: str,
+    voice_id: str,
+    rate: str,
+    volume: str,
+    output_path: Path,
+    retries: int = 3,
+) -> None:
+    last_error: Exception | None = None
+    voice_candidates = [voice_id]
+    fallback_voice = _fallback_voice(voice_id)
+    if fallback_voice:
+        voice_candidates.append(fallback_voice)
+
+    for candidate in voice_candidates:
+        for attempt in range(1, retries + 1):
+            try:
+                communicate = edge_tts.Communicate(text=text, voice=candidate, rate=rate, volume=volume)
+                _run_async(communicate.save, str(output_path))
+                _ensure_audio_file(output_path)
+                return
+            except Exception as exc:
+                last_error = exc
+                if output_path.exists():
+                    output_path.unlink(missing_ok=True)
+                if attempt < retries:
+                    time.sleep(0.8 * attempt)
+    raise RuntimeError(
+        f"Edge-TTS không trả về audio sau {retries} lần thử với voice {voice_id}."
+    ) from last_error
+
+
+def _fallback_voice(voice_id: str) -> str:
+    fallbacks = {
+        "vi-VN-NamMinhNeural": "vi-VN-HoaiMyNeural",
+    }
+    return fallbacks.get(voice_id, "")
+
+
+def _split_text(text: str, max_chars: int) -> list[str]:
+    normalized = " ".join(text.split())
+    if len(normalized) <= max_chars:
+        return [normalized]
+
+    chunks: list[str] = []
+    current = ""
+    for part in _sentence_parts(normalized):
+        if not current:
+            current = part
+        elif len(current) + 1 + len(part) <= max_chars:
+            current = f"{current} {part}"
+        else:
+            chunks.extend(_hard_split(current, max_chars))
+            current = part
+    if current:
+        chunks.extend(_hard_split(current, max_chars))
+    return [chunk for chunk in chunks if chunk.strip()]
+
+
+def _sentence_parts(text: str) -> list[str]:
+    parts: list[str] = []
+    current = ""
+    for char in text:
+        current += char
+        if char in ".!?;:。！？":
+            parts.append(current.strip())
+            current = ""
+    if current.strip():
+        parts.append(current.strip())
+    return parts
+
+
+def _hard_split(text: str, max_chars: int) -> list[str]:
+    if len(text) <= max_chars:
+        return [text]
+    words = text.split()
+    chunks: list[str] = []
+    current = ""
+    for word in words:
+        if len(word) > max_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(word[index : index + max_chars] for index in range(0, len(word), max_chars))
+        elif not current:
+            current = word
+        elif len(current) + 1 + len(word) <= max_chars:
+            current = f"{current} {word}"
+        else:
+            chunks.append(current)
+            current = word
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _concat_audio(inputs: list[Path], output_path: Path) -> None:
+    list_path = output_path.with_name(f"{output_path.stem}_concat.txt")
+    lines = [f"file '{path.resolve().as_posix()}'" for path in inputs]
+    list_path.write_text("\n".join(lines), encoding="utf-8")
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_path),
+            "-c",
+            "copy",
+            str(output_path),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _ensure_audio_file(path: Path) -> None:
+    if not path.exists() or path.stat().st_size <= 0:
+        raise RuntimeError(f"Edge-TTS không tạo được audio: {path.name}")
 
 
 def _run_async(func, *args):

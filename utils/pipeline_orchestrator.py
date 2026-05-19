@@ -13,7 +13,8 @@ from app.services.merger_service import MergerCallbacks, MergerService
 from app.services.translate_service import TranslateCallbacks, TranslateService
 from app.services.tts_service import TtsCallbacks, TtsService
 from utils.download import download
-from utils.stt_processor import save_transcript, transcribe_audio
+from utils.stt_processor import normalize_segments, save_transcript, transcribe_audio
+from utils.translator import parse_srt, replace_all, serialize_srt
 from utils.video_merger import require_ffmpeg
 from utils.video_splitter import get_model_paths, split_video_audio
 
@@ -43,13 +44,23 @@ class PipelineConfig:
     merge_muted_video: str = ""
     merge_speech_audio: str = ""
     merge_background_audio: str = ""
+    download_use_proxy: bool = True
     stt_model_size: str = "base"
     stt_language: str = "auto"
+    stt_speaker_mode: str = "1 người nói"
+    stt_auto_merge_enabled: bool = False
+    stt_merge_group_size: int = 5
+    stt_auto_normalize_enabled: bool = False
     translate_provider: str = "gemini"
     translate_model: str = "gemini-2.5-flash"
     translate_api_key: str = ""
     translate_target_language: str = "vi"
     translate_content_safety: bool = False
+    translate_batch_enabled: bool = True
+    translate_batch_size: int = 10
+    translate_replace_enabled: bool = False
+    translate_find_text: str = ""
+    translate_replace_text: str = ""
     tts_provider: str = "edge-tts"
     tts_language: str = "vi"
     tts_voice_id: str = "vi-VN-HoaiMyNeural"
@@ -60,6 +71,7 @@ class PipelineConfig:
     tts_api_key: str = ""
     intro_video: str = ""
     outro_video: str = ""
+    merge_output_name: str = ""
     merge_speech_volume: int = 100
     merge_background_volume: int = 125
 
@@ -96,6 +108,7 @@ class PipelineProgress:
     step_index: int
     total_steps: int
     overall_percent: float
+    step_percent: float
     message: str
     context: JobContext
 
@@ -125,8 +138,13 @@ def create_job_context(config: PipelineConfig) -> JobContext:
     return JobContext(job_id=job_dir.name, job_dir=str(job_dir), source_stem=source_stem)
 
 
-def validate_pipeline_requirements(config: PipelineConfig) -> None:
-    steps = _selected_steps(config)
+def validate_pipeline_requirements(
+    config: PipelineConfig,
+    *,
+    resume_context: Optional[JobContext] = None,
+    start_step: Optional[str] = None,
+) -> None:
+    steps = _selected_steps(config, start_step=start_step)
     if not steps:
         raise ValueError("Vui lòng chọn ít nhất một bước pipeline.")
 
@@ -135,16 +153,22 @@ def validate_pipeline_requirements(config: PipelineConfig) -> None:
         if not config.input_url.strip():
             raise ValueError("Vui lòng nhập URL để chạy bước tải file.")
     elif first_step == "split":
-        _require_file(config.local_video_path, "video gốc")
+        if not (resume_context and (resume_context.downloaded_video or resume_context.local_video)):
+            _require_file(config.local_video_path, "video gốc")
     elif first_step == "stt":
-        _require_file(config.input_audio_path, "audio đầu vào cho STT")
+        if not (resume_context and resume_context.vocals_audio):
+            _require_file(config.input_audio_path, "audio đầu vào cho STT")
     elif first_step == "translate":
-        _require_file(config.input_srt_path, "file SRT đầu vào cho Translate")
+        if not (resume_context and resume_context.transcript_srt):
+            _require_file(config.input_srt_path, "file SRT đầu vào cho Translate")
     elif first_step == "tts":
-        _require_file(config.translated_srt_path, "file SRT đã dịch cho TTS")
+        if not (resume_context and resume_context.translated_srt):
+            _require_file(config.translated_srt_path, "file SRT đã dịch cho TTS")
     elif first_step == "merge":
-        _require_file(config.merge_muted_video, "muted video cho Merge")
-        _require_file(config.merge_speech_audio, "speech audio cho Merge")
+        if not (resume_context and resume_context.muted_video):
+            _require_file(config.merge_muted_video, "muted video cho Merge")
+        if not (resume_context and resume_context.speech_audio):
+            _require_file(config.merge_speech_audio, "speech audio cho Merge")
 
     if "split" in steps:
         get_model_paths()
@@ -163,16 +187,22 @@ def run_pipeline(
     on_step_done: Optional[Callable[[PipelineStepStatus], None]] = None,
     on_log: Optional[Callable[[str], None]] = None,
     stop_event: Optional[Event] = None,
+    resume_context: Optional[JobContext] = None,
+    start_step: Optional[str] = None,
 ) -> PipelineResult:
     started_at = time.monotonic()
     context: Optional[JobContext] = None
-    steps = [PipelineStepStatus(step=step) for step in _selected_steps(config)]
-    step_map = {status.step: status for status in steps}
+    steps = [PipelineStepStatus(step=step) for step in _selected_steps(config, start_step=start_step)]
 
     try:
-        validate_pipeline_requirements(config)
-        context = create_job_context(config)
-        _log(on_log, f"Job folder: {context.job_dir}")
+        validate_pipeline_requirements(config, resume_context=resume_context, start_step=start_step)
+        context = resume_context or create_job_context(config)
+        if resume_context:
+            _log(on_log, f"Tiếp tục Job folder: {context.job_dir}")
+            if start_step:
+                _log(on_log, f"Chạy lại từ bước {STEP_TITLES.get(start_step, start_step)}.")
+        else:
+            _log(on_log, f"Job folder: {context.job_dir}")
 
         total_steps = len(steps)
         for index, step_status in enumerate(steps, start=1):
@@ -232,14 +262,26 @@ def run_pipeline(
     except Exception as exc:
         elapsed = time.monotonic() - started_at
         message = str(exc)
+        failed_step = ""
         for status in steps:
             if status.state == "running":
                 status.state = "error"
                 status.error_message = message
                 status.message = message
+                failed_step = status.step
                 if on_step_done:
                     on_step_done(status)
                 break
+        for status in steps:
+            if status.state == "pending":
+                status.state = "skipped"
+                status.message = (
+                    f"Đã dừng do lỗi ở bước {STEP_TITLES.get(failed_step, failed_step)}."
+                    if failed_step
+                    else "Đã dừng do pipeline gặp lỗi."
+                )
+                if on_step_done:
+                    on_step_done(status)
         _log(on_log, f"Lỗi: {message}")
         return PipelineResult(
             ok=False,
@@ -261,7 +303,7 @@ def _run_download(config: PipelineConfig, context: JobContext, progress: Callabl
     result = download(
         url=config.input_url,
         output_filename=str(output_path),
-        use_proxy=True,
+        use_proxy=config.download_use_proxy,
         on_progress=on_download_progress,
     )
     if not result.ok or not result.file_path:
@@ -271,7 +313,11 @@ def _run_download(config: PipelineConfig, context: JobContext, progress: Callabl
 
 
 def _run_split(config: PipelineConfig, context: JobContext, progress: Callable[[str, Optional[float]], None]) -> None:
-    video_path = context.downloaded_video or context.local_video
+    video_path = context.downloaded_video
+    if not video_path and config.source_mode == "local_video" and config.local_video_path:
+        video_path = _copy_local_video_to_job(config, context)
+    if not video_path:
+        video_path = context.local_video
     if not video_path:
         video_path = _copy_local_video_to_job(config, context)
     result = split_video_audio(
@@ -290,6 +336,8 @@ def _run_stt(config: PipelineConfig, context: JobContext, progress: Callable[[st
     audio_path = context.vocals_audio or config.input_audio_path
     if not audio_path:
         raise ValueError("Không có audio đầu vào cho STT.")
+    if config.stt_speaker_mode != "1 người nói":
+        raise ValueError("Chức năng nhiều người nói sắp ra mắt.")
     language = None if config.stt_language in {"", "auto"} else config.stt_language
     result = transcribe_audio(
         audio_path=audio_path,
@@ -299,7 +347,11 @@ def _run_stt(config: PipelineConfig, context: JobContext, progress: Callable[[st
     )
     if not result.ok:
         raise RuntimeError(result.error_message or "Nhận diện giọng nói thất bại.")
-    context.transcript_srt = save_transcript(result.segments, context.job_dir, audio_path, "srt")
+    segments = result.segments
+    if config.stt_auto_normalize_enabled:
+        progress("Đang chuẩn hóa text nhận diện...", None)
+        segments = normalize_segments(segments)
+    context.transcript_srt = save_transcript(segments, context.job_dir, audio_path, "srt")
 
 
 def _run_translate(config: PipelineConfig, context: JobContext, progress: Callable[[str, Optional[float]], None]) -> None:
@@ -315,17 +367,40 @@ def _run_translate(config: PipelineConfig, context: JobContext, progress: Callab
         api_key=config.translate_api_key,
         target_language=config.translate_target_language,
         content_safety=config.translate_content_safety,
+        batch_size=config.translate_batch_size if config.translate_batch_enabled else 10_000_000,
         callbacks=TranslateCallbacks(on_progress=lambda item: progress(item.message, item.percent)),
     )
     if not result.ok or not result.output_file:
         raise RuntimeError(result.error_message or "Dịch subtitle thất bại.")
-    context.translated_srt = result.output_file
+    context.translated_srt = _wait_for_file_ready(
+        result.output_file,
+        timeout_sec=2.0,
+        progress=progress,
+        waiting_message="Đang chờ file phụ đề dịch hoàn tất ghi xuống đĩa...",
+        missing_label="file SRT đã dịch",
+    )
+    if config.translate_replace_enabled and config.translate_find_text:
+        progress("Đang replace nội dung phụ đề sau khi dịch...", None)
+        translated_segments = parse_srt(context.translated_srt)
+        replaced_segments = replace_all(
+            translated_segments,
+            config.translate_find_text,
+            config.translate_replace_text,
+        )
+        Path(context.translated_srt).write_text(serialize_srt(replaced_segments), encoding="utf-8")
 
 
 def _run_tts(config: PipelineConfig, context: JobContext, progress: Callable[[str, Optional[float]], None]) -> None:
     input_srt = context.translated_srt or config.translated_srt_path
     if not input_srt:
         raise ValueError("Không có file SRT đã dịch cho TTS.")
+    input_srt = _wait_for_file_ready(
+        input_srt,
+        timeout_sec=2.0,
+        progress=progress,
+        waiting_message="Đang xác nhận file SRT đầu vào cho bước Lồng Tiếng AI...",
+        missing_label="file SRT cho TTS",
+    )
     service = TtsService()
     result = service.run_job(
         input_srt=input_srt,
@@ -361,7 +436,7 @@ def _run_merge(config: PipelineConfig, context: JobContext, progress: Callable[[
         intro_video=config.intro_video,
         outro_video=config.outro_video,
         output_dir=context.job_dir,
-        output_name=f"{context.source_stem}_final.mp4",
+        output_name=_resolve_merge_output_name(config, context),
         speech_volume=config.merge_speech_volume / 100,
         background_volume=config.merge_background_volume / 100,
         callbacks=MergerCallbacks(on_progress=lambda item: progress(item.message, item.percent)),
@@ -369,6 +444,17 @@ def _run_merge(config: PipelineConfig, context: JobContext, progress: Callable[[
     if not result.ok or not result.output_file:
         raise RuntimeError(result.error_message or "Gộp video thất bại.")
     context.final_video = result.output_file
+
+
+def _resolve_merge_output_name(config: PipelineConfig, context: JobContext) -> str:
+    raw_name = (config.merge_output_name or "").strip()
+    if not raw_name:
+        return f"{context.source_stem}_final.mp4"
+    path = Path(raw_name)
+    filename = path.name
+    if not filename.lower().endswith(".mp4"):
+        filename = f"{filename}.mp4"
+    return _safe_stem(Path(filename).stem) + ".mp4"
 
 
 def _copy_local_video_to_job(config: PipelineConfig, context: JobContext) -> str:
@@ -380,8 +466,13 @@ def _copy_local_video_to_job(config: PipelineConfig, context: JobContext) -> str
     return str(destination)
 
 
-def _selected_steps(config: PipelineConfig) -> list[str]:
-    return [step for step in PIPELINE_STEPS if step in set(config.selected_steps)]
+def _selected_steps(config: PipelineConfig, *, start_step: Optional[str] = None) -> list[str]:
+    steps = [step for step in PIPELINE_STEPS if step in set(config.selected_steps)]
+    if not start_step:
+        return steps
+    if start_step not in steps:
+        raise ValueError("Bước lỗi cần chạy lại không còn nằm trong danh sách bước được chọn.")
+    return steps[steps.index(start_step) :]
 
 
 def _resolve_source_stem(config: PipelineConfig) -> str:
@@ -448,6 +539,7 @@ def _emit_progress(
             step_index=step_index,
             total_steps=total_steps,
             overall_percent=overall,
+            step_percent=max(0.0, min(100.0, step_percent)),
             message=message,
             context=context,
         )
@@ -457,3 +549,24 @@ def _emit_progress(
 def _log(callback: Optional[Callable[[str], None]], message: str) -> None:
     if callback:
         callback(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+
+
+def _wait_for_file_ready(
+    file_path: str,
+    *,
+    timeout_sec: float,
+    progress: Callable[[str, Optional[float]], None],
+    waiting_message: str,
+    missing_label: str,
+) -> str:
+    path = Path(file_path).expanduser()
+    deadline = time.monotonic() + timeout_sec
+    informed = False
+    while time.monotonic() <= deadline:
+        if path.exists() and path.is_file():
+            return str(path)
+        if not informed:
+            progress(waiting_message, None)
+            informed = True
+        time.sleep(0.1)
+    raise FileNotFoundError(f"Không tìm thấy {missing_label}: {path}")

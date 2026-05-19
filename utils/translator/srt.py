@@ -76,10 +76,11 @@ def total_duration_sec(segments: list[SrtSegment]) -> float:
     return _timestamp_to_seconds(segments[-1].end_time)
 
 
-def chunk_segments(segments: list[SrtSegment]) -> list[list[SrtSegment]]:
+def chunk_segments(segments: list[SrtSegment], batch_size: int = 10) -> list[list[SrtSegment]]:
     if len(segments) < 20:
         return [segments]
-    return [segments[index : index + 10] for index in range(0, len(segments), 10)]
+    safe_batch_size = max(int(batch_size or 10), 1)
+    return [segments[index : index + safe_batch_size] for index in range(0, len(segments), safe_batch_size)]
 
 
 def build_output_path(input_srt: str | Path, output_dir: str | Path, target_language: str) -> Path:

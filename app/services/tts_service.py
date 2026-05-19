@@ -163,14 +163,20 @@ class TtsService:
                     percent=((position - 1) / total) * 90,
                 )
                 raw_path = segment_dir / f"{segment.index:04d}_raw.mp3"
-                synthesized = tts.synthesize_segment(
-                    text=segment.text,
-                    voice_id=voice_id,
-                    output_path=raw_path,
-                    rate=rate if provider == "edge-tts" else 0,
-                    volume=volume if provider == "edge-tts" else 0,
-                    pitch=pitch,
-                )
+                try:
+                    synthesized = tts.synthesize_segment(
+                        text=segment.text,
+                        voice_id=voice_id,
+                        output_path=raw_path,
+                        rate=rate if provider == "edge-tts" else 0,
+                        volume=volume if provider == "edge-tts" else 0,
+                        pitch=pitch,
+                    )
+                except Exception as exc:
+                    preview = " ".join(segment.text.split())[:120]
+                    raise RuntimeError(
+                        f"Lỗi tạo audio ở segment {segment.index}: {exc}. Nội dung: {preview}"
+                    ) from exc
                 raw_duration = get_duration(synthesized)
                 working_path = synthesized
 

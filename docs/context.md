@@ -1,6 +1,6 @@
 # Project Context
 
-Tài liệu này ghi lại các phần đã triển khai và các quyết định kỹ thuật quan trọng cho v1 Download, v2 Video Splitter, v3 Speech To Text, v4 Translate, v5 Text To Speech, và v6 Merge Video & Audio.
+Tài liệu này ghi lại các phần đã triển khai và các quyết định kỹ thuật quan trọng cho app Dubb Tools: v1 Download, v2 Video Splitter, v3 Speech To Text, v4 Translate, v5 Text To Speech, v6 Merge Video & Audio, v7 Full Pipeline, v8 chuẩn hóa tiếng Việt, và các thay đổi repo/runtime gần đây.
 
 ## Kiến trúc hiện tại
 
@@ -19,6 +19,9 @@ Feature hiện có:
 - `TranslateView`: `app/features/translate_view.py`
 - `TtsView`: `app/features/tts_view.py`
 - `MergerView`: `app/features/merger_view.py`
+- `PipelineView`: `app/features/pipeline_view.py`
+
+Repo hiện tại ưu tiên kiến trúc UI + service + utils. Code CLI cũ chỉ còn nằm trong `docs/code` để tham khảo local, không được Git track và không được runtime import.
 
 ## V1 Download
 
@@ -33,7 +36,7 @@ Các thay đổi đã làm:
 - Refactor logic tải thành core reusable trong `utils/download.py`.
 - Thêm `DownloadProgress` và `DownloadResult`.
 - Hỗ trợ `on_progress`, `on_success`, `on_error`, `stop_event`.
-- CLI cũ đã được lưu vào `docs/code` để tham khảo; app hiện tại chạy theo kiến trúc UI + service + utils.
+- CLI cũ đã được loại khỏi root và lưu vào `docs/code` để tham khảo local; app hiện tại chạy theo kiến trúc UI + service + utils.
 - Cho phép chọn thư mục lưu bằng dialog native OS.
 - Ưu tiên `zenity` trên Linux, fallback sang `PySide6 QFileDialog`.
 - Không dùng `Flet FilePicker` vì runtime hiện tại báo `Unknown control: FilePicker`.
@@ -88,7 +91,6 @@ Các file chính:
 - `utils/stt_processor.py`: core STT logic.
 - `app/services/stt_service.py`: single-job execution cho STT.
 - `app/features/stt_view.py`: UI feature v3.
-- `extract_text.py`: wrapper tương thích pipeline/CLI cũ, dùng core mới.
 - `docs/v3_speech_to_text.md`: spec v3.
 
 Các thay đổi đã làm:
@@ -119,7 +121,7 @@ Các thay đổi đã làm:
 Lưu ý:
 
 - STT realtime ở mức stage + số segment đã nhận diện; không có % tuyệt đối ổn định trong mọi file.
-- `extract_text.py` vẫn giữ API/hành vi cũ cho `pipeline_executor.py`, nhưng backend đã dùng core `utils/stt_processor.py`.
+- Wrapper CLI cũ đã được đưa ra khỏi runtime; STT hiện dùng trực tiếp core `utils/stt_processor.py`.
 
 ## V4 Translate
 
@@ -184,6 +186,7 @@ Các thành phần core đã thêm:
 - `utils/tts/base.py`: `BaseTTS`.
 - `utils/tts/edge_tts_provider.py`: `EdgeTTSProvider`.
 - `utils/tts/gemini_tts_provider.py`: `GeminiTTSProvider` (dùng `google-genai`).
+- `utils/tts/gemini_audio.py`: helper prompt/audio WAV cho Gemini TTS, tách khỏi code CLI cũ.
 - `utils/tts/models.py`: `TtsSegment`, `TtsVoice`, `GeneratedSegment`, `TtsProgress`, `TtsResult`.
 - `utils/tts/timing.py`: parse segment từ SRT, ffprobe duration, atempo, adjust speed, apply volume.
 - `utils/tts/composer.py`: gộp timeline audio theo timestamp bằng ffmpeg + silence.
@@ -202,6 +205,7 @@ Các thay đổi đã làm:
 - Với Gemini TTS:
   - không truyền rate/volume trực tiếp vào API.
   - rate/volume xử lý hậu kỳ bằng ffmpeg sau khi sinh segment.
+  - runtime import helper từ `utils/tts/gemini_audio.py`, không import từ `docs/code`.
 - Output:
   - file tổng: `<stem>_speech.mp3`.
   - thư mục segment: `<stem>_segments/` (nếu bật `Giữ segment lẻ`).
@@ -289,9 +293,73 @@ Lưu ý:
 
 - V6 chỉ hỗ trợ intro/outro là video, chưa hỗ trợ ảnh.
 - `ffmpeg` và `ffprobe` là yêu cầu runtime bắt buộc.
-- `pipeline_executor.py` không bị thay đổi ở v6.
+- CLI/pipeline executor cũ không còn nằm trong runtime.
 - Đã smoke test core bằng video/audio mẫu trong `/tmp`, output MP4 có cả video và audio.
 - Đã kiểm tra compile bằng `rtk ./venb/bin/python -m compileall app utils main.py`.
+
+## V7 Full Pipeline
+
+Các file chính:
+
+- `utils/pipeline_orchestrator.py`: orchestration core cho flow nhiều bước.
+- `app/services/pipeline_service.py`: service single-job cho pipeline.
+- `app/features/pipeline_view.py`: UI feature full pipeline.
+
+Các thay đổi đã làm:
+
+- Thêm feature `PipelineView` vào shell sau `MergerView`.
+- Hỗ trợ 2 nguồn đầu vào:
+  - URL: chạy Download trước.
+  - local file: bỏ qua Download và copy input vào job folder.
+- Mỗi lần chạy tạo job folder riêng trong `resources/layer/pipeline`.
+- Có thể chọn/bỏ từng bước: Download, Split, STT, Translate, TTS, Merge.
+- Pipeline tự truyền output của bước trước sang input của bước sau.
+- UI có source card, step selection, global config, progress tổng, execution log và step output.
+- Config local lưu trong `config/pipeline_config.json`.
+- Preflight kiểm tra input đầu tiên, Gemini API key, `ffmpeg/ffprobe`, và vendor model nếu có bước Split.
+- Khi lỗi, pipeline dừng ngay và giữ job folder để debug.
+- PipelineView đã được nâng cấp từ `Cấu hình nhanh` thành các card cấu hình theo từng step:
+  - Download: proxy.
+  - Split: mô tả output và vendor model.
+  - STT: model, language, speaker mode, tự gộp dòng, số dòng mỗi nhóm, tự chuẩn hóa text.
+  - Translate: model, API key, target language, content safety, replace sau dịch.
+  - TTS: provider, language, voice, API key, rate, volume, pitch disabled, keep segments.
+  - Merge: intro/outro, output filename, speech/background volume.
+- Pipeline orchestrator tự áp dụng post-processing:
+  - normalize/merge transcript trước khi lưu SRT.
+  - replace output SRT sau dịch mà không gọi lại AI.
+  - custom output filename cho merge nếu user nhập.
+
+Lưu ý:
+
+- V7 không dùng `pipeline_executor.py` cũ.
+- PipelineView tự hiển thị trạng thái/output của từng bước, không ép các tab đơn lẻ cập nhật realtime theo pipeline.
+
+## V8 Vietnamese UI
+
+Các thay đổi đã làm:
+
+- Chuẩn hóa tiếng Việt cho text UI chính trong các feature.
+- Chuẩn hóa tên feature trong sidebar:
+  - `Bộ Tải File`
+  - `Bộ Tách Video`
+  - `Giọng Nói Thành Văn Bản`
+  - `Dịch Phụ Đề`
+  - `Lồng Tiếng AI`
+  - `Gộp Video`
+  - `Tự Động Hóa Quy Trình`
+- Trạng thái nội bộ vẫn giữ tiếng Anh nếu cần cho logic; lớp hiển thị map sang tiếng Việt.
+- Không đổi feature id, provider id, config key, output pattern hay cấu trúc dữ liệu.
+
+## Repo cleanup và README
+
+Các quyết định mới:
+
+- Root không còn giữ các file CLI cũ như `download.py`, `extract_text.py`, `translate.py`, `pipeline_executor.py`, `create_audio.py`, `audio_speed.py`.
+- `docs/code` chỉ để tham khảo local, không Git track, không runtime import.
+- `.gitignore` đang ignore toàn bộ `docs/**` nhưng mở lại `docs/context.md`.
+- `config/*.json`, `vendor/`, `resources/layer/`, `venb/`, cache Python đều không Git track.
+- `readme.md` đã được viết lại theo phong cách open-source: badge, mục lục, quick start, architecture, startup bootstrap, troubleshooting, roadmap, contributing.
 
 ## Model và Vendor
 
@@ -362,34 +430,71 @@ Nơi đang dùng:
 - `app/features/tts_view.py`: chọn input SRT bản dịch và output folder audio.
 - `app/features/merger_view.py`: chọn video/audio input, intro/outro và output folder video final.
 
+## Full pipeline retry/resume
+
+`Tự Động Hóa Quy Trình` hiện hỗ trợ chạy lại từ bước lỗi trong cùng một Job folder:
+
+- Khi pipeline lỗi, `PipelineResult.context` giữ lại các output đã tạo trước đó.
+- UI hiển thị nút `Chạy lại từ bước lỗi` sau khi có lỗi.
+- Người dùng có thể chỉnh config, config mới sẽ được lưu qua `PipelineService.save_config(...)`, rồi workflow chạy tiếp từ đúng bước lỗi thay vì tạo Job mới hoặc chạy lại từ đầu.
+- `utils/pipeline_orchestrator.run_pipeline(...)` nhận thêm `resume_context` và `start_step`.
+- Khi resume, orchestrator validate input dựa trên `JobContext` cũ trước, chỉ yêu cầu input override nếu context chưa có output cần thiết.
+- Nếu người dùng bỏ chọn chính bước lỗi, UI sẽ yêu cầu giữ bước đó trong danh sách để tránh resume sai luồng.
+- Kết quả pipeline gần nhất được lưu ở `config/pipeline_last_run.json`.
+- Khi mở app lại, `PipelineView` tự khôi phục Job gần nhất, trạng thái từng bước và nút retry nếu lần trước lỗi.
+- File state này nằm trong `config/`, đang bị Git ignore giống các config local khác.
+
+## Full pipeline translate batching
+
+Workflow không còn gộp thật các dòng STT trước khi dịch/TTS, vì việc gộp nhiều câu có khoảng nghỉ sẽ làm mất pause và khiến lồng tiếng lệch timing.
+
+- STT trong pipeline luôn lưu transcript theo từng segment/timestamp gốc.
+- `Tự chuẩn hóa text` vẫn áp dụng từng segment riêng.
+- `Dịch theo batch` chỉ gom nhiều dòng vào cùng request Gemini để giảm số API call.
+- Prompt dịch vẫn gửi `full_text` toàn bộ file làm context, còn `Subtitle chunk` chỉ là batch đang cần dịch.
+- Output dịch giữ đúng số dòng, index và timestamp như input.
+- TTS dùng SRT chi tiết này để `compose_timeline(...)` chèn silence đúng giữa các đoạn thoại.
+- Mặc định batch size là `10`; file dưới `20` dòng vẫn dịch bằng `1` request.
+
+## STT cleanup và lọc nhiễu
+
+Nút `Chuẩn hóa` trong STT và tùy chọn `Tự chuẩn hóa text` trong workflow hiện vừa format text vừa lọc nhiễu STT.
+
+- `normalize_text(...)` xử lý whitespace, khoảng trắng quanh dấu câu và viết hoa đầu segment.
+- `cleanup_transcript_segments(...)` giữ timestamp của segment hợp lệ và loại segment rõ ràng là nhiễu.
+- Các mẫu như `A. O. S. H. I. D.` hoặc token ngắn lặp vô nghĩa sẽ bị loại.
+- Câu tự nhiên có từ ngắn như `Tôi tên là Bằng`, `Tôi là Bằng`, `Ai đó?` vẫn được giữ.
+- Các marker như `Intro`, `Outro`, `Nhạc mở đầu`, `Kết thúc` được giữ.
+- `TranslateService` cũng chạy cleanup trước khi chia batch để không gửi dòng nhiễu lên Gemini nếu input SRT chưa được chuẩn hóa.
+
 ## RTK workflow
 
 Repo có rule RTK:
 
 - Ưu tiên chạy command dạng `rtk <command>` để giảm token output.
-- Tài liệu workflow nằm ở `docs/rtk_workflow.md`.
+- Theo yêu cầu hiện tại, mọi lệnh shell mặc định chạy qua `rtk`.
+- Các docs cũ ngoài `docs/context.md` đang bị ignore, nên context này là tài liệu vận hành chính còn được Git track.
 
 Một vài command hay dùng:
 
-- `rtk ./venb/bin/python -m compileall app utils main.py extract_text.py`
-- `rtk ./venb/bin/python -m compileall app utils main.py translate.py`
-- `rtk ./venb/bin/python -m compileall app utils main.py audio_speed.py create_audio.py`
 - `rtk ./venb/bin/python -m compileall app utils main.py`
+- `rtk ./venb/bin/python -m compileall app utils scripts main.py`
 - `rtk ./venb/bin/python main.py`
 - `rtk ./venb/bin/flet run main.py`
+- `rtk ./venb/bin/python scripts/ensure_vendor.py --check`
 
 ## Cách chạy app
 
 Khuyến nghị chạy bằng virtual env:
 
 ```bash
-./venb/bin/python main.py
+rtk ./venb/bin/python main.py
 ```
 
 Hoặc:
 
 ```bash
-./venb/bin/flet run main.py
+rtk ./venb/bin/flet run main.py
 ```
 
 Không nên chạy bằng `/usr/bin/python3` nếu chưa activate env vì hệ thống không có đủ package như `flet`.

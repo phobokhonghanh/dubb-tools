@@ -8,6 +8,7 @@ from typing import Callable, Optional
 
 from utils.pipeline_orchestrator import (
     DEFAULT_PIPELINE_WORKSPACE,
+    JobContext,
     PIPELINE_STEPS,
     PipelineConfig,
     PipelineProgress,
@@ -18,6 +19,7 @@ from utils.pipeline_orchestrator import (
 
 
 CONFIG_PATH = Path("config/pipeline_config.json")
+LAST_RUN_PATH = Path("config/pipeline_last_run.json")
 
 
 @dataclass
@@ -40,11 +42,16 @@ def default_config() -> dict:
 
 
 class PipelineService:
-    def __init__(self, config_path: str | Path = CONFIG_PATH) -> None:
+    def __init__(
+        self,
+        config_path: str | Path = CONFIG_PATH,
+        last_run_path: str | Path = LAST_RUN_PATH,
+    ) -> None:
         self._lock = Lock()
         self._active = False
         self._stop_event = Event()
         self.config_path = Path(config_path)
+        self.last_run_path = Path(last_run_path)
 
     @property
     def is_processing(self) -> bool:
@@ -79,11 +86,47 @@ class PipelineService:
             data["selected_steps"] = list(PIPELINE_STEPS)
         return PipelineConfig(**data)
 
+    def load_last_result(self) -> Optional[PipelineResult]:
+        if not self.last_run_path.exists():
+            return None
+        try:
+            data = json.loads(self.last_run_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+        try:
+            context_data = data.get("context")
+            context = JobContext(**context_data) if isinstance(context_data, dict) else None
+            steps = [
+                PipelineStepStatus(**item)
+                for item in data.get("steps", [])
+                if isinstance(item, dict) and item.get("step") in PIPELINE_STEPS
+            ]
+            return PipelineResult(
+                ok=bool(data.get("ok")),
+                job_dir=data.get("job_dir"),
+                context=context,
+                steps=steps,
+                final_video=data.get("final_video"),
+                error_message=data.get("error_message"),
+                elapsed_sec=float(data.get("elapsed_sec") or 0),
+            )
+        except Exception:
+            return None
+
+    def save_last_result(self, result: PipelineResult) -> None:
+        data = asdict(result)
+        self.last_run_path.parent.mkdir(parents=True, exist_ok=True)
+        self.last_run_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
     def run_job(
         self,
         *,
         config: PipelineConfig,
         callbacks: Optional[PipelineCallbacks] = None,
+        resume_context: Optional[JobContext] = None,
+        start_step: Optional[str] = None,
     ) -> PipelineResult:
         with self._lock:
             if self._active:
@@ -100,12 +143,17 @@ class PipelineService:
                 on_step_done=callbacks.on_step_done,
                 on_log=callbacks.on_log,
                 stop_event=self._stop_event,
+                resume_context=resume_context,
+                start_step=start_step,
             )
             if result.ok:
+                self.save_last_result(result)
                 if callbacks.on_success:
                     callbacks.on_success(result)
-            elif callbacks.on_error:
-                callbacks.on_error(result)
+            else:
+                self.save_last_result(result)
+                if callbacks.on_error:
+                    callbacks.on_error(result)
             return result
         except Exception as exc:
             result = PipelineResult(
@@ -117,6 +165,7 @@ class PipelineService:
                 error_message=str(exc),
                 elapsed_sec=0,
             )
+            self.save_last_result(result)
             if callbacks.on_error:
                 callbacks.on_error(result)
             return result

@@ -33,7 +33,7 @@ def main(page: ft.Page) -> None:
 
     loading_view = ft.Container(
         expand=True,
-        alignment=ft.alignment.center,
+        alignment=ft.Alignment.CENTER,
         bgcolor="#121212",
         content=ft.Column(
             width=560,

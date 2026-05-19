@@ -13,6 +13,20 @@ from faster_whisper import WhisperModel
 DEFAULT_STT_OUTPUT_DIR = Path("resources/layer/process")
 SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg"}
 SUPPORTED_LANGUAGES = {"auto", "vi", "en", "zh", "ja", "ko", "fr", "de", "es", "th"}
+PROTECTED_SEGMENT_KEYWORDS = {
+    "intro",
+    "outro",
+    "opening",
+    "ending",
+    "credit",
+    "credits",
+    "nhạc",
+    "nhac",
+    "mở đầu",
+    "mo dau",
+    "kết thúc",
+    "ket thuc",
+}
 
 
 @dataclass
@@ -135,7 +149,7 @@ def merge_segments(segments: list[TranscriptSegment], group_size: int) -> list[T
     return merged
 
 
-def _normalize_text(value: str) -> str:
+def normalize_text(value: str) -> str:
     text = re.sub(r"\s+", " ", value.strip())
     text = re.sub(r"\s+([,.!?;:])", r"\1", text)
     text = re.sub(r"([,.!?;:])([^\s,.!?;:])", r"\1 \2", text)
@@ -144,15 +158,91 @@ def _normalize_text(value: str) -> str:
     return text
 
 
-def normalize_segments(segments: list[TranscriptSegment]) -> list[TranscriptSegment]:
-    return [
-        TranscriptSegment(
-            start_time=segment.start_time,
-            end_time=segment.end_time,
-            content=_normalize_text(segment.content),
+def is_noise_text(value: str) -> bool:
+    text = normalize_text(value)
+    if not text:
+        return True
+    if _is_protected_segment(text):
+        return False
+    if _has_cjk_text(text):
+        return False
+    if _is_spelled_letter_noise(text):
+        return True
+    if _has_repeated_noise_tokens(text):
+        return True
+    if _has_excessive_punctuation(text) and not _has_natural_text_shape(text):
+        return True
+    return not _has_natural_text_shape(text)
+
+
+def cleanup_transcript_segments(segments: list[TranscriptSegment]) -> list[TranscriptSegment]:
+    cleaned: list[TranscriptSegment] = []
+    for segment in segments:
+        content = normalize_text(segment.content)
+        if is_noise_text(content):
+            continue
+        cleaned.append(
+            TranscriptSegment(
+                start_time=segment.start_time,
+                end_time=segment.end_time,
+                content=content,
+            )
         )
-        for segment in segments
-    ]
+    return cleaned
+
+
+def normalize_segments(segments: list[TranscriptSegment]) -> list[TranscriptSegment]:
+    return cleanup_transcript_segments(segments)
+
+
+def _is_protected_segment(text: str) -> bool:
+    lowered = text.casefold()
+    return any(keyword in lowered for keyword in PROTECTED_SEGMENT_KEYWORDS)
+
+
+def _has_cjk_text(text: str) -> bool:
+    return bool(re.search(r"[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]{2,}", text))
+
+
+def _letter_tokens(text: str) -> list[str]:
+    return re.findall(r"[^\W\d_]+", text, flags=re.UNICODE)
+
+
+def _is_spelled_letter_noise(text: str) -> bool:
+    tokens = _letter_tokens(text)
+    if len(tokens) < 4:
+        return False
+    single_letter_count = sum(1 for token in tokens if len(token) == 1)
+    punctuation_count = sum(1 for char in text if char in ".,;:")
+    return single_letter_count / len(tokens) >= 0.8 and punctuation_count >= max(3, len(tokens) // 2)
+
+
+def _has_repeated_noise_tokens(text: str) -> bool:
+    normalized_tokens = [token.casefold() for token in _letter_tokens(text)]
+    if len(normalized_tokens) < 3:
+        return False
+    counts = {token: normalized_tokens.count(token) for token in set(normalized_tokens)}
+    most_common = max(counts.values(), default=0)
+    short_token_count = sum(1 for token in normalized_tokens if len(token) <= 4)
+    return most_common >= 3 and short_token_count / len(normalized_tokens) >= 0.75
+
+
+def _has_excessive_punctuation(text: str) -> bool:
+    punctuation_count = sum(1 for char in text if char in ".,!?;:")
+    letter_count = sum(1 for char in text if char.isalpha())
+    if letter_count == 0:
+        return True
+    return punctuation_count / letter_count > 0.45
+
+
+def _has_natural_text_shape(text: str) -> bool:
+    tokens = _letter_tokens(text)
+    letter_count = sum(len(token) for token in tokens)
+    if len(tokens) >= 2 and letter_count >= 4:
+        return True
+    if letter_count >= 5 and len(tokens) >= 2:
+        return True
+    return any(len(token) >= 3 for token in tokens) and letter_count >= 3
 
 
 def save_transcript(

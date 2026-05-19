@@ -7,6 +7,7 @@ from pathlib import Path
 from threading import Event, Lock
 from typing import Callable, Optional
 
+from utils.stt_processor import TranscriptSegment, cleanup_transcript_segments
 from utils.translator import (
     DEFAULT_TRANSLATE_MODEL,
     DEFAULT_TRANSLATE_OUTPUT_DIR,
@@ -17,6 +18,7 @@ from utils.translator import (
     build_output_path,
     chunk_segments,
     parse_srt,
+    serialize_srt,
 )
 
 
@@ -94,6 +96,7 @@ class TranslateService:
         api_key: str,
         target_language: str,
         content_safety: bool,
+        batch_size: int = 10,
         callbacks: Optional[TranslateCallbacks] = None,
     ) -> TranslateResult:
         with self._lock:
@@ -118,8 +121,10 @@ class TranslateService:
                 }
             )
             self._emit(callbacks.on_progress, stage="parse", message="Đang đọc file SRT...", percent=0)
-            source_segments = parse_srt(input_srt)
-            chunks = chunk_segments(source_segments)
+            source_segments = self._cleanup_source_segments(parse_srt(input_srt))
+            if not source_segments:
+                raise ValueError("File SRT không còn nội dung hợp lệ sau khi lọc nhiễu.")
+            chunks = chunk_segments(source_segments, batch_size=batch_size)
             output_path = build_output_path(input_srt, output_dir or DEFAULT_TRANSLATE_OUTPUT_DIR, target_language)
 
             if provider != "gemini":
@@ -157,9 +162,11 @@ class TranslateService:
                 self._emit(
                     callbacks.on_progress,
                     stage="translate",
-                    message=f"Đã dịch {len(translated_segments)}/{len(source_segments)} dòng.",
+                message=f"Đã dịch {len(translated_segments)}/{len(source_segments)} dòng.",
                     percent=(chunk_index / total_chunks) * 100,
                 )
+
+            output_path.write_text(serialize_srt(translated_segments), encoding="utf-8")
 
             elapsed = time.monotonic() - started_at
             result = TranslateResult(
@@ -192,6 +199,32 @@ class TranslateService:
     def _check_stop(self) -> None:
         if self._stop_event.is_set():
             raise RuntimeError("Đã dừng tác vụ dịch.")
+
+    @staticmethod
+    def _cleanup_source_segments(segments: list[SrtSegment]) -> list[SrtSegment]:
+        cleaned_srt: list[SrtSegment] = []
+        for source_segment in segments:
+            cleaned_segments = cleanup_transcript_segments(
+                [
+                    TranscriptSegment(
+                        start_time=0,
+                        end_time=0,
+                        content=source_segment.text,
+                    )
+                ]
+            )
+            if not cleaned_segments:
+                continue
+            cleaned_segment = cleaned_segments[0]
+            cleaned_srt.append(
+                SrtSegment(
+                    index=source_segment.index,
+                    start_time=source_segment.start_time,
+                    end_time=source_segment.end_time,
+                    text=cleaned_segment.content,
+                )
+            )
+        return cleaned_srt
 
     @staticmethod
     def _emit(
