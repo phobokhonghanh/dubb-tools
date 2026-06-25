@@ -34,6 +34,12 @@ class GeminiTranslator(BaseTranslator):
             content_safety=content_safety,
             source_name=source_name,
         )
+        try:
+            with open("debug.txt", "w", encoding="utf-8") as f:
+                f.write(prompt)
+        except Exception as err:
+            print(f"[DEBUG] Lỗi ghi debug.txt: {err}")
+
         config = types.GenerateContentConfig(
             temperature=0.3,
             response_modalities=["text"],

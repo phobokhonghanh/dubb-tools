@@ -49,10 +49,10 @@ class PipelineConfig:
     stt_language: str = "auto"
     stt_speaker_mode: str = "1 người nói"
     stt_auto_merge_enabled: bool = False
-    stt_merge_group_size: int = 5
+    stt_merge_group_size: int = 1
     stt_auto_normalize_enabled: bool = False
     translate_provider: str = "gemini"
-    translate_model: str = "gemini-2.5-flash"
+    translate_model: str = "gemini-3.5-flash"
     translate_api_key: str = ""
     translate_target_language: str = "vi"
     translate_content_safety: bool = False

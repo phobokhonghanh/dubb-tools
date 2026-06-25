@@ -132,6 +132,10 @@ class TtsView(BaseFeatureView):
         self._volume: int = int(config.get("volume") or 0)
         self._pitch: int = int(config.get("pitch") or 0)
         self._keep_segments: bool = bool(config.get("keep_segments", True))
+        self._auto_merge: bool = bool(config.get("auto_merge", True))
+        self._max_workers: int = int(config.get("max_workers") or 5)
+        if not self._auto_merge:
+            self._keep_segments = True
         api_keys = config.get("api_keys")
         self._api_keys: dict = dict(api_keys) if isinstance(api_keys, dict) else {}
         self._api_key: str = str(self._api_keys.get("gemini-tts") or "")
@@ -184,23 +188,55 @@ class TtsView(BaseFeatureView):
         except Exception:
             self._page.update()
 
+    def _play_audio(self, path: str) -> None:
+        if not self._page:
+            return
+        if not hasattr(self, "_audio_player") or self._audio_player is None:
+            self._audio_player = ft.Audio(src=path, autoplay=True)
+            self._page.overlay.append(self._audio_player)
+            self._page.update()
+        else:
+            self._audio_player.src = path
+            self._audio_player.update()
+            self._audio_player.play()
+
     def _build_result_rows(self) -> list[ft.Control]:
         rows: list[ft.Control] = []
         for segment in self._segments:
             raw = "--" if segment.raw_duration_sec is None else f"{segment.raw_duration_sec:.2f}s"
             final = "--" if segment.final_duration_sec is None else f"{segment.final_duration_sec:.2f}s"
+            
+            # Button to preview the segment
+            play_btn = None
+            if segment.file_path and os.path.exists(segment.file_path):
+                play_btn = ft.IconButton(
+                    icon=ft.Icons.PLAY_ARROW_ROUNDED,
+                    icon_color=ACCENT,
+                    icon_size=20,
+                    tooltip="Nghe thử phân đoạn này",
+                    on_click=lambda e, path=segment.file_path: self._play_audio(path),
+                )
+            else:
+                play_btn = ft.IconButton(
+                    icon=ft.Icons.PLAY_ARROW_ROUNDED,
+                    icon_color=ft.Colors.BLUE_GREY_700,
+                    icon_size=20,
+                    disabled=True,
+                )
+
             rows.append(
                 ft.Container(
                     bgcolor=SURFACE_BG,
                     border_radius=8,
-                    padding=10,
+                    padding=5,
                     content=ft.Row(
-                        vertical_alignment=ft.CrossAxisAlignment.START,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
+                            play_btn,
                             ft.Text(str(segment.index), width=34, color=ft.Colors.BLUE_GREY_200),
                             ft.Text(
                                 f"[{segment.start_time} - {segment.end_time}]",
-                                width=230,
+                                width=200,
                                 color=ACCENT,
                                 selectable=True,
                             ),
@@ -234,7 +270,13 @@ class TtsView(BaseFeatureView):
         controls["rate_value"].value = f"{self._rate:+d}%"
         controls["volume_slider"].value = self._volume
         controls["volume_value"].value = f"{self._volume:+d}%"
+        controls["max_workers_slider"].value = self._max_workers
+        controls["max_workers_value"].value = f"{self._max_workers} luồng"
         controls["keep_segments_checkbox"].value = self._keep_segments
+        controls["keep_segments_checkbox"].disabled = self._busy or not self._auto_merge
+        controls["auto_merge_checkbox"].value = self._auto_merge
+        controls["auto_merge_checkbox"].disabled = self._busy
+        controls["merge_button"].disabled = self._busy or not self._segments
         controls["status_text"].value = self._status_text
         controls["stage_text"].value = self._stage_text
         controls["current_file_text"].value = self._current_file_text
@@ -255,8 +297,11 @@ class TtsView(BaseFeatureView):
             "api_key_field",
             "rate_slider",
             "volume_slider",
+            "max_workers_slider",
             "keep_segments_checkbox",
+            "auto_merge_checkbox",
             "start_button",
+            "merge_button",
         ):
             controls[key].disabled = self._busy
         controls["start_button"].text = "Đang xử lý..." if self._busy else "Bắt đầu lồng tiếng"
@@ -319,9 +364,12 @@ class TtsView(BaseFeatureView):
         )
         rate_value = ft.Text(f"{self._rate:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
         volume_value = ft.Text(f"{self._volume:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
+        max_workers_value = ft.Text(f"{self._max_workers} luồng", color=ft.Colors.BLUE_GREY_100, width=58)
         rate_slider = ft.Slider(min=-50, max=100, divisions=150, value=self._rate, label="{value}%", active_color=ACCENT)
         volume_slider = ft.Slider(min=-50, max=100, divisions=150, value=self._volume, label="{value}%", active_color=ACCENT)
+        max_workers_slider = ft.Slider(min=1, max=10, divisions=9, value=self._max_workers, label="{value} luồng", active_color=ACCENT)
         keep_segments_checkbox = ft.Checkbox(label="Giữ segment lẻ", value=self._keep_segments, active_color=ACCENT)
+        auto_merge_checkbox = ft.Checkbox(label="Tự động gộp âm thanh", value=self._auto_merge, active_color=ACCENT)
 
         status_text = ft.Text(self._status_text, color=WARN, size=13, selectable=True)
         current_file_text = ft.Text(self._current_file_text, color=ft.Colors.WHITE)
@@ -360,6 +408,12 @@ class TtsView(BaseFeatureView):
             bgcolor=ACCENT,
             color=ft.Colors.BLACK,
         )
+        merge_button = ft.ElevatedButton(
+            "Gộp âm thanh",
+            icon=ft.Icons.CALL_MERGE,
+            bgcolor=ACCENT,
+            color=ft.Colors.BLACK,
+        )
         open_folder_button = ft.OutlinedButton(
             "Mở thư mục lưu",
             icon=ft.Icons.FOLDER_OPEN,
@@ -377,7 +431,10 @@ class TtsView(BaseFeatureView):
             "rate_value": rate_value,
             "volume_slider": volume_slider,
             "volume_value": volume_value,
+            "max_workers_slider": max_workers_slider,
+            "max_workers_value": max_workers_value,
             "keep_segments_checkbox": keep_segments_checkbox,
+            "auto_merge_checkbox": auto_merge_checkbox,
             "status_text": status_text,
             "stage_text": stage_text,
             "current_file_text": current_file_text,
@@ -389,6 +446,7 @@ class TtsView(BaseFeatureView):
             "choose_output_button": choose_output_button,
             "reset_output_button": reset_output_button,
             "start_button": start_button,
+            "merge_button": merge_button,
             "open_folder_button": open_folder_button,
         }
 
@@ -422,7 +480,12 @@ class TtsView(BaseFeatureView):
             self._api_keys["gemini-tts"] = self._api_key
             self._rate = int(rate_slider.value or 0)
             self._volume = int(volume_slider.value or 0)
-            self._keep_segments = bool(keep_segments_checkbox.value)
+            self._max_workers = int(max_workers_slider.value or 5)
+            self._auto_merge = bool(auto_merge_checkbox.value)
+            if not self._auto_merge:
+                self._keep_segments = True
+            else:
+                self._keep_segments = bool(keep_segments_checkbox.value)
 
         def ui_progress(progress: TtsProgress) -> None:
             self._stage_text = progress.message
@@ -441,9 +504,14 @@ class TtsView(BaseFeatureView):
             self._stage_text = "Hoàn tất"
             self._progress_value = 1
             self._progress_visible = True
-            self._status_text = f"Đã lưu: {result.output_file}"
-            self._output_file = result.output_file
-            self._open_folder_visible = bool(result.output_file)
+            if result.output_file:
+                self._status_text = f"Đã lưu: {result.output_file}"
+                self._output_file = result.output_file
+                self._open_folder_visible = True
+            else:
+                self._status_text = "Tạo phân đoạn lồng tiếng hoàn tất. Hãy bấm 'Gộp âm thanh' để gộp file tổng."
+                self._output_file = None
+                self._open_folder_visible = False
             request_ui_refresh()
             notify("Lồng tiếng hoàn tất.", ft.Colors.GREEN_700)
 
@@ -508,8 +576,18 @@ class TtsView(BaseFeatureView):
             self._volume = int(event.control.value or 0)
             request_ui_refresh()
 
+        def on_max_workers_change(event: ft.ControlEvent) -> None:
+            self._max_workers = int(event.control.value or 5)
+            request_ui_refresh()
+
         def on_keep_segments_change(event: ft.ControlEvent) -> None:
             self._keep_segments = bool(event.control.value)
+            request_ui_refresh()
+
+        def on_auto_merge_change(event: ft.ControlEvent) -> None:
+            self._auto_merge = bool(event.control.value)
+            if not self._auto_merge:
+                self._keep_segments = True
             request_ui_refresh()
 
         def start_tts(_: ft.ControlEvent) -> None:
@@ -553,6 +631,8 @@ class TtsView(BaseFeatureView):
             volume = self._volume
             pitch = self._pitch
             keep_segments = self._keep_segments
+            auto_merge = self._auto_merge
+            max_workers = self._max_workers
             api_key = self._api_key
 
             def worker() -> None:
@@ -567,6 +647,8 @@ class TtsView(BaseFeatureView):
                         volume=volume,
                         pitch=pitch,
                         keep_segments=keep_segments,
+                        auto_merge=auto_merge,
+                        max_workers=max_workers,
                         api_key=api_key,
                         callbacks=callbacks,
                     )
@@ -603,8 +685,56 @@ class TtsView(BaseFeatureView):
         api_key_field.on_change = on_api_key_change
         rate_slider.on_change = on_rate_change
         volume_slider.on_change = on_volume_change
+        max_workers_slider.on_change = on_max_workers_change
         keep_segments_checkbox.on_change = on_keep_segments_change
+        auto_merge_checkbox.on_change = on_auto_merge_change
         start_button.on_click = start_tts
+        
+        def merge_audio_action(_: ft.ControlEvent) -> None:
+            if not self._input_srt:
+                self._status_text = "Vui lòng chọn file .srt đã dịch."
+                request_ui_refresh()
+                return
+            if not self._segments:
+                self._status_text = "Không có phân đoạn nào để gộp."
+                request_ui_refresh()
+                return
+
+            self._show_progress_card = True
+            self._progress_visible = True
+            self._progress_value = None
+            self._stage_text = "Đang gộp file audio tổng..."
+            self._status_text = ""
+            set_busy(True)
+
+            input_srt = self._input_srt
+            output_dir = self._output_dir
+            generated_segments = self._segments
+
+            def worker() -> None:
+                try:
+                    output_file = self.service.merge_segments(
+                        input_srt=input_srt,
+                        output_dir=output_dir,
+                        generated_segments=generated_segments,
+                    )
+                    set_busy(False, refresh=False)
+                    self._stage_text = "Gộp hoàn tất"
+                    self._progress_value = 1
+                    self._progress_visible = True
+                    self._status_text = f"Đã gộp thành công: {output_file}"
+                    self._output_file = output_file
+                    self._open_folder_visible = True
+                    request_ui_refresh()
+                    notify("Gộp file lồng tiếng hoàn tất.", ft.Colors.GREEN_700)
+                except Exception as exc:
+                    set_busy(False, refresh=False)
+                    self._status_text = f"Lỗi gộp file: {exc}"
+                    request_ui_refresh()
+
+            page.run_thread(worker)
+
+        merge_button.on_click = merge_audio_action
         open_folder_button.on_click = open_output_folder
         self._sync_controls()
 
@@ -641,6 +771,7 @@ class TtsView(BaseFeatureView):
                                                     "Tăng/giảm tốc độ đọc. Nếu audio dài hơn subtitle, hệ thống vẫn tự tăng tốc thêm để khớp thời gian.",
                                                     size=12,
                                                     color=ft.Colors.BLUE_GREY_200,
+                                                    expand=True,
                                                 ),
                                                 rate_slider,
                                             ],
@@ -659,6 +790,7 @@ class TtsView(BaseFeatureView):
                                                     "Điều chỉnh âm lượng giọng đọc trước khi gộp file audio tổng.",
                                                     size=12,
                                                     color=ft.Colors.BLUE_GREY_200,
+                                                    expand=True,
                                                 ),
                                                 volume_slider,
                                             ],
@@ -666,7 +798,32 @@ class TtsView(BaseFeatureView):
                                     ],
                                     spacing=12,
                                 ),
-                                keep_segments_checkbox,
+                                ft.Row(
+                                    [
+                                        ft.Icon(ft.Icons.DENSITY_MEDIUM, color=ACCENT),
+                                        ft.Column(
+                                            expand=True,
+                                            controls=[
+                                                ft.Row([ft.Text("Số luồng xử lý song song"), max_workers_value]),
+                                                ft.Text(
+                                                    "Tăng số luồng để tạo audio song song nhanh hơn. Khuyên dùng từ 3 - 5 luồng.",
+                                                    size=12,
+                                                    color=ft.Colors.BLUE_GREY_200,
+                                                    expand=True,
+                                                ),
+                                                max_workers_slider,
+                                            ],
+                                        ),
+                                    ],
+                                    spacing=12,
+                                ),
+                                ft.Row(
+                                    [
+                                        auto_merge_checkbox,
+                                        keep_segments_checkbox,
+                                    ],
+                                    spacing=24,
+                                ),
                             ],
                         ),
                     ),
@@ -679,7 +836,7 @@ class TtsView(BaseFeatureView):
                             controls=[
                                 ft.Row([input_srt_field, choose_input_button], spacing=12),
                                 ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12),
-                                ft.Row([start_button, open_folder_button], spacing=12),
+                                ft.Row([start_button, merge_button, open_folder_button], spacing=12),
                             ],
                         ),
                     ),

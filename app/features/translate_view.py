@@ -28,7 +28,26 @@ CARD_BG = "#1E1E1E"
 SURFACE_BG = "#151515"
 ACCENT = "#00D4FF"
 WARN = "#FF8080"
-MODEL_OPTIONS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
+MODEL_OPTIONS = [
+    # "gemma-4-31b",
+    # "gemma-4-26b",
+    # "gemini-robotics-er-1.6-preview",
+    # "gemini-robotics-er-1.5-preview",
+    # "gemini-embedding-2",
+    # "gemini-embedding-1",
+    # "gemini-3.5-live-translate",
+    "gemini-3.5-flash",
+    # "gemini-3.1-flash-tts",
+    # "gemini-3.1-flash-lite",
+    # "gemini-3-flash-live",
+    "gemini-3-flash",
+    "gemini-2.5-pro",
+    # "gemini-2.5-flash-tts",
+    # "gemini-2.5-flash-native-audio-dialog",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+]
 
 
 def open_folder(path: str) -> None:
@@ -129,6 +148,8 @@ class TranslateView(BaseFeatureView):
         self._input_srt: str = ""
         self._output_dir: str = str(DEFAULT_TRANSLATE_OUTPUT_DIR)
         self._model: str = str(config.get("model") or DEFAULT_TRANSLATE_MODEL)
+        if self._model not in MODEL_OPTIONS:
+            self._model = DEFAULT_TRANSLATE_MODEL
         api_keys = config.get("api_keys")
         self._api_key: str = ""
         if isinstance(api_keys, dict):
@@ -412,7 +433,8 @@ class TranslateView(BaseFeatureView):
             set_busy(False, refresh=False)
             self._segments = result.segments
             update_line_count()
-            self._stage_text = "Hoàn tất"
+            total_out_chars = sum(sum(1 for c in segment.text if c.isalnum()) for segment in result.segments)
+            self._stage_text = f"Hoàn tất (Tổng output: {total_out_chars} ký tự)"
             self._progress_value = 1
             self._progress_visible = True
             self._status_text = ""
@@ -420,7 +442,7 @@ class TranslateView(BaseFeatureView):
             self._save_button_visible = bool(self._segments)
             self._open_folder_visible = bool(self._output_file)
             request_ui_refresh()
-            notify("Dịch phụ đề hoàn tất.", ft.Colors.GREEN_700)
+            notify(f"Dịch phụ đề hoàn tất. Tổng cộng: {total_out_chars} ký tự output.", ft.Colors.GREEN_700)
 
         def ui_error(result: TranslateResult) -> None:
             set_busy(False, refresh=False)

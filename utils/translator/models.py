@@ -6,7 +6,7 @@ from typing import Optional
 
 
 DEFAULT_TRANSLATE_OUTPUT_DIR = Path("resources/layer/process")
-DEFAULT_TRANSLATE_MODEL = "gemini-2.5-flash"
+DEFAULT_TRANSLATE_MODEL = "gemini-3.5-flash"
 LANGUAGE_OPTIONS = {
     "vi": "Tiếng Việt",
     "en": "English",

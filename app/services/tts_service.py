@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, Lock
@@ -49,6 +50,8 @@ def default_config() -> dict:
         "volume": 0,
         "pitch": 0,
         "keep_segments": True,
+        "auto_merge": True,
+        "max_workers": 5,
         "api_keys": {},
     }
 
@@ -107,6 +110,8 @@ class TtsService:
         pitch: int,
         keep_segments: bool,
         api_key: str | None = None,
+        auto_merge: bool = True,
+        max_workers: int = 5,
         callbacks: Optional[TtsCallbacks] = None,
     ) -> TtsResult:
         with self._lock:
@@ -145,6 +150,8 @@ class TtsService:
                     "volume": volume,
                     "pitch": pitch,
                     "keep_segments": keep_segments,
+                    "auto_merge": auto_merge,
+                    "max_workers": max_workers,
                     "api_keys": api_keys,
                 }
             )
@@ -154,14 +161,13 @@ class TtsService:
             tts = self._build_provider(provider, api_key)
             total = len(segments)
 
-            for position, segment in enumerate(segments, start=1):
+            progress_lock = Lock()
+            completed_count = 0
+
+            def process_segment(item) -> GeneratedSegment:
+                position, segment = item
                 self._check_stop()
-                self._emit(
-                    callbacks.on_progress,
-                    stage="synthesize",
-                    message=f"Đang tạo audio segment {position}/{total}...",
-                    percent=((position - 1) / total) * 90,
-                )
+
                 raw_path = segment_dir / f"{segment.index:04d}_raw.mp3"
                 try:
                     synthesized = tts.synthesize_segment(
@@ -192,12 +198,6 @@ class TtsService:
                 final_path = working_path
                 final_duration = get_duration(final_path)
                 if final_duration > segment.target_duration_sec:
-                    self._emit(
-                        callbacks.on_progress,
-                        stage="speed",
-                        message=f"Đang căn tốc độ segment {position}/{total}...",
-                        percent=((position - 1) / total) * 90,
-                    )
                     final_path = adjust_speed(
                         final_path,
                         segment_dir / f"{segment.index:04d}_timed.mp3",
@@ -205,41 +205,64 @@ class TtsService:
                     )
                     final_duration = get_duration(final_path)
 
-                generated.append(
-                    GeneratedSegment(
-                        index=segment.index,
-                        start_time=segment.start_time,
-                        end_time=segment.end_time,
-                        target_duration_sec=segment.target_duration_sec,
-                        raw_duration_sec=raw_duration,
-                        final_duration_sec=final_duration,
-                        file_path=str(final_path),
-                        status="done",
-                    )
-                )
-                if callbacks.on_segment_done:
-                    callbacks.on_segment_done(list(generated))
-                self._emit(
-                    callbacks.on_progress,
-                    stage="synthesize",
-                    message=f"Đã tạo {position}/{total} segment.",
-                    percent=(position / total) * 90,
+                gen_seg = GeneratedSegment(
+                    index=segment.index,
+                    start_time=segment.start_time,
+                    end_time=segment.end_time,
+                    target_duration_sec=segment.target_duration_sec,
+                    raw_duration_sec=raw_duration,
+                    final_duration_sec=final_duration,
+                    file_path=str(final_path),
+                    status="done",
                 )
 
-            self._emit(callbacks.on_progress, stage="compose", message="Đang gộp file audio...", percent=95)
-            compose_timeline(
-                segments=segments,
-                generated=generated,
-                output_path=output_file,
-                work_dir=segment_dir,
-            )
-            if not keep_segments and segment_dir.exists():
-                shutil.rmtree(segment_dir, ignore_errors=True)
+                nonlocal completed_count
+                with progress_lock:
+                    generated.append(gen_seg)
+                    generated.sort(key=lambda s: s.index)
+                    completed_count += 1
+
+                    if callbacks.on_segment_done:
+                        callbacks.on_segment_done(list(generated))
+                    self._emit(
+                        callbacks.on_progress,
+                        stage="synthesize",
+                        message=f"Đã tạo {completed_count}/{total} segment.",
+                        percent=(completed_count / total) * 90,
+                    )
+                return gen_seg
+
+            futures = []
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                for position, segment in enumerate(segments, start=1):
+                    futures.append(executor.submit(process_segment, (position, segment)))
+
+                for future in as_completed(futures):
+                    if self._stop_event.is_set():
+                        for f in futures:
+                            f.cancel()
+                        raise RuntimeError("Đã dừng tác vụ lồng tiếng.")
+                    future.result()
+
+            if auto_merge:
+                self._emit(callbacks.on_progress, stage="compose", message="Đang gộp file audio...", percent=95)
+                compose_timeline(
+                    segments=segments,
+                    generated=generated,
+                    output_path=output_file,
+                    work_dir=segment_dir,
+                )
+                if not keep_segments and segment_dir.exists():
+                    shutil.rmtree(segment_dir, ignore_errors=True)
+                out_path_str = str(output_file)
+            else:
+                self._emit(callbacks.on_progress, stage="synthesize", message="Đã lưu các segment (bỏ qua gộp âm thanh).", percent=95)
+                out_path_str = None
 
             result = TtsResult(
                 ok=True,
-                output_file=str(output_file),
-                segment_dir=str(segment_dir) if keep_segments else None,
+                output_file=out_path_str,
+                segment_dir=str(segment_dir) if (keep_segments or not auto_merge) else None,
                 segments=generated,
                 elapsed_sec=time.monotonic() - started_at,
                 error_message=None,
@@ -303,3 +326,25 @@ class TtsService:
     ) -> None:
         if callback:
             callback(TtsProgress(stage=stage, message=message, percent=percent))
+
+    def merge_segments(
+        self,
+        *,
+        input_srt: str,
+        output_dir: str,
+        generated_segments: list[GeneratedSegment],
+    ) -> str:
+        source = Path(input_srt).expanduser()
+        out_dir = Path(output_dir or DEFAULT_TTS_OUTPUT_DIR).expanduser()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        segment_dir = out_dir / f"{source.stem}_segments"
+        output_file = out_dir / f"{source.stem}_speech.mp3"
+        
+        segments = parse_tts_segments(source)
+        compose_timeline(
+            segments=segments,
+            generated=generated_segments,
+            output_path=output_file,
+            work_dir=segment_dir,
+        )
+        return str(output_file)

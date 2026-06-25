@@ -147,7 +147,7 @@ class SttView(BaseFeatureView):
         self._progress_visible: bool = False
         self._segments: list[TranscriptSegment] = []
         self._source_segments: list[TranscriptSegment] = []
-        self._group_size: str = "5"
+        self._group_size: str = "1"
         self._line_count_text: str = "Tổng số dòng: 0"
         self._busy: bool = False
         self._output_file: Optional[str] = None

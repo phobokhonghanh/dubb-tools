@@ -132,21 +132,128 @@ class TranslateService:
             translator = GeminiTranslator(api_key=api_key, model=model)
 
             total_chunks = len(chunks)
+            total_input_chars_all = sum(sum(1 for c in segment.text if c.isalnum()) for segment in source_segments)
+            print(f"[TRANSLATE] Bắt đầu dịch. Tổng số ký tự input của file (chỉ tính từ ngữ): {total_input_chars_all}")
+
+            text_models = [
+                "gemini-3.5-flash",
+                "gemini-3-flash",
+                "gemini-2.5-pro",
+                "gemini-2.5-flash-lite",
+                "gemini-2.5-flash",
+                "gemini-2.0-flash",
+            ]
+            fallback_models = [model]
+            for m in text_models:
+                if m not in fallback_models:
+                    fallback_models.append(m)
+
+            current_model_index = 0
+
             for chunk_index, chunk in enumerate(chunks, start=1):
                 self._check_stop()
-                self._emit(
-                    callbacks.on_progress,
-                    stage="translate",
-                    message=f"Đang dịch cụm {chunk_index}/{total_chunks}...",
-                    percent=((chunk_index - 1) / total_chunks) * 100,
-                )
-                translated_texts = translator.translate_segments(
-                    segments=chunk,
-                    all_segments=source_segments,
-                    target_language=target_language,
-                    content_safety=content_safety,
-                    source_name=Path(input_srt).name,
-                )
+                
+                # Count input characters (only alphanumeric)
+                input_chars = sum(sum(1 for c in segment.text if c.isalnum()) for segment in chunk)
+                print(f"[TRANSLATE] Cụm {chunk_index}/{total_chunks} - Trước khi gửi: {input_chars} ký tự input (chỉ tính từ ngữ)")
+                
+                max_retries = 5
+                retry_delay = 5.0
+                translated_texts = None
+                success = False
+                
+                for idx in range(current_model_index, len(fallback_models)):
+                    active_model = fallback_models[idx]
+                    translator.model = active_model
+                    
+                    for attempt in range(1, max_retries + 1):
+                        try:
+                            self._check_stop()
+                            self._emit(
+                                callbacks.on_progress,
+                                stage="translate",
+                                message=f"Đang dịch cụm {chunk_index}/{total_chunks} (Model: {active_model}, Lần thử {attempt}/{max_retries}, Input: {input_chars} ký tự)...",
+                                percent=((chunk_index - 1) / total_chunks) * 100,
+                            )
+                            translated_texts = translator.translate_segments(
+                                segments=chunk,
+                                all_segments=source_segments,
+                                target_language=target_language,
+                                content_safety=content_safety,
+                                source_name=Path(input_srt).name,
+                            )
+                            success = True
+                            current_model_index = idx  # Save this model as the working one
+                            break  # Success, exit retry loop for active_model
+                        except Exception as exc:
+                            print(f"[TRANSLATE] Lỗi dịch cụm {chunk_index} với model {active_model} (Lần thử {attempt}/{max_retries}): {exc}")
+                            if attempt < max_retries:
+                                # Notify UI of the error and waiting status
+                                self._emit(
+                                    callbacks.on_progress,
+                                    stage="translate",
+                                    message=f"Lỗi cụm {chunk_index} ({active_model} Lần {attempt} thất bại). Đang chờ {int(retry_delay)}s để thử lại...",
+                                    percent=((chunk_index - 1) / total_chunks) * 100,
+                                )
+                                # Wait with interruptibility
+                                if self._stop_event.wait(retry_delay):
+                                    raise RuntimeError("Đã dừng tác vụ dịch.")
+                            else:
+                                print(f"[TRANSLATE] Model {active_model} thất bại hoàn toàn sau 5 lần thử.")
+                    
+                    if success:
+                        break  # Exit fallback models loop
+                    
+                if not success:
+                    # Try falling back starting from index 0 in case the working model failed but we skipped earlier models
+                    if current_model_index > 0:
+                        print(f"[TRANSLATE] Thử lại các model fallback từ đầu danh sách...")
+                        for idx in range(0, current_model_index):
+                            active_model = fallback_models[idx]
+                            translator.model = active_model
+                            
+                            for attempt in range(1, max_retries + 1):
+                                try:
+                                    self._check_stop()
+                                    self._emit(
+                                        callbacks.on_progress,
+                                        stage="translate",
+                                        message=f"Đang dịch cụm {chunk_index}/{total_chunks} (Model: {active_model}, Lần thử {attempt}/{max_retries}, Input: {input_chars} ký tự)...",
+                                        percent=((chunk_index - 1) / total_chunks) * 100,
+                                    )
+                                    translated_texts = translator.translate_segments(
+                                        segments=chunk,
+                                        all_segments=source_segments,
+                                        target_language=target_language,
+                                        content_safety=content_safety,
+                                        source_name=Path(input_srt).name,
+                                    )
+                                    success = True
+                                    current_model_index = idx  # Save this model as the working one
+                                    break
+                                except Exception as exc:
+                                    print(f"[TRANSLATE] Lỗi dịch cụm {chunk_index} với model {active_model} (Lần thử {attempt}/{max_retries}): {exc}")
+                                    if attempt < max_retries:
+                                        self._emit(
+                                            callbacks.on_progress,
+                                            stage="translate",
+                                            message=f"Lỗi cụm {chunk_index} ({active_model} Lần {attempt} thất bại). Đang chờ {int(retry_delay)}s để thử lại...",
+                                            percent=((chunk_index - 1) / total_chunks) * 100,
+                                        )
+                                        if self._stop_event.wait(retry_delay):
+                                            raise RuntimeError("Đã dừng tác vụ dịch.")
+                                    else:
+                                        print(f"[TRANSLATE] Model {active_model} thất bại hoàn toàn sau 5 lần thử.")
+                            if success:
+                                break
+                    
+                if not success:
+                    raise RuntimeError(f"Tất cả các model fallback đều thất bại tại cụm {chunk_index}.")
+                
+                # Count output characters (only alphanumeric)
+                output_chars = sum(sum(1 for c in text if c.isalnum()) for text in translated_texts)
+                print(f"[TRANSLATE] Cụm {chunk_index}/{total_chunks} - Sau khi xong: {output_chars} ký tự output (chỉ tính từ ngữ)")
+                
                 translated_chunk = [
                     SrtSegment(
                         index=segment.index,
@@ -162,9 +269,12 @@ class TranslateService:
                 self._emit(
                     callbacks.on_progress,
                     stage="translate",
-                message=f"Đã dịch {len(translated_segments)}/{len(source_segments)} dòng.",
+                    message=f"Đã dịch {len(translated_segments)}/{len(source_segments)} dòng. (Cụm {chunk_index} Output: {output_chars} ký tự)",
                     percent=(chunk_index / total_chunks) * 100,
                 )
+
+            total_output_chars_all = sum(sum(1 for c in segment.text if c.isalnum()) for segment in translated_segments)
+            print(f"[TRANSLATE] Dịch hoàn tất. Tổng số ký tự output của file (chỉ tính từ ngữ): {total_output_chars_all}")
 
             output_path.write_text(serialize_srt(translated_segments), encoding="utf-8")
 
