@@ -1,10 +1,13 @@
 requests
 flet
+flet-audio
 faster-whisper
 moviepy
 piper-tts
 google-genai
-PySide6_Essentials
 sherpa-onnx
 soundfile
 edge-tts
+pytest
+pytest-mock
+cryptography

@@ -16,6 +16,7 @@ env/
 .env
 .env.*
 config/*.json
+config/.key
 
 # Docs (keep only context)
 docs/**

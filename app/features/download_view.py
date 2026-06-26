@@ -10,7 +10,7 @@ from typing import Optional
 import flet as ft
 
 from app.features.base import BaseFeatureView
-from app.services.download_service import DownloadJobCallbacks, DownloadService
+from core.use_cases.download_service import DownloadJobCallbacks, DownloadService
 from utils.download import (
     DEFAULT_DOWNLOAD_DIR,
     DownloadProgress,

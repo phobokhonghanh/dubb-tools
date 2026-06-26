@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from utils.process import run_process
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,7 +69,7 @@ def ensure_pyvideotrans_vendor(
     vendor_dir.parent.mkdir(parents=True, exist_ok=True)
     try:
         _emit(on_progress, "Đang clone pyvideotrans từ GitHub...")
-        subprocess.run(["git", "clone", repo_url, str(vendor_dir)], check=True)
+        run_process(["git", "clone", repo_url, str(vendor_dir)], check=True)
     except (FileNotFoundError, subprocess.CalledProcessError):
         if vendor_dir.exists():
             return check_pyvideotrans_vendor(runtime_root)

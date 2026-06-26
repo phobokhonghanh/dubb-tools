@@ -10,7 +10,7 @@ from typing import Optional
 import flet as ft
 
 from app.features.base import BaseFeatureView
-from app.services.video_splitter_service import VideoSplitterCallbacks, VideoSplitterService
+from core.use_cases.video_splitter_service import VideoSplitterCallbacks, VideoSplitterService
 from utils.video_splitter import DEFAULT_OUTPUT_DIR, SUPPORTED_VIDEO_EXTENSIONS, VideoSplitProgress, VideoSplitResult
 
 

@@ -5,25 +5,26 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import flet as ft
 
 from app.features.base import BaseFeatureView
-from app.services.pipeline_service import PipelineCallbacks, PipelineService
-from app.services.translate_service import TranslateService
-from app.services.tts_service import TtsService
-from utils.pipeline_orchestrator import (
+from app.presenter.pipeline_presenter import PipelinePresenter
+from core.use_cases.pipeline_orchestrator import (
     DEFAULT_PIPELINE_WORKSPACE,
     PIPELINE_STEPS,
     STEP_TITLES,
-    PipelineConfig,
-    PipelineProgress,
-    PipelineResult,
     PipelineStepStatus,
 )
-from utils.translator import DEFAULT_TRANSLATE_MODEL, LANGUAGE_OPTIONS as TRANSLATE_LANGUAGES
-from utils.tts import DEFAULT_TTS_PROVIDER, LANGUAGE_OPTIONS as TTS_LANGUAGES
+from infrastructure.providers.translator import (
+    LANGUAGE_OPTIONS as TRANSLATE_LANGUAGES,
+    DEFAULT_TRANSLATE_MODEL,
+)
+from infrastructure.providers.tts import (
+    LANGUAGE_OPTIONS as TTS_LANGUAGES,
+    DEFAULT_TTS_PROVIDER,
+)
 
 
 CARD_BG = "#1E1E1E"
@@ -58,17 +59,10 @@ STATUS_LABELS = {
 }
 
 
-def open_folder(path: str) -> None:
-    if sys.platform.startswith("linux"):
-        subprocess.Popen(["xdg-open", path])  # noqa: S603,S607
-    elif sys.platform == "darwin":
-        subprocess.Popen(["open", path])  # noqa: S603,S607
-    else:
-        os.startfile(path)  # type: ignore[attr-defined]
-
-
 def pick_directory_native(initial_dir: str) -> Optional[str]:
     if shutil.which("zenity"):
+        # Gọi trực tiếp qua subprocess.run thay vì run_process để tránh đăng ký vào ProcessManager.
+        # Điều này ngăn việc tiến trình hộp thoại GUI tương tác bị tắt nhầm khi bấm "Hủy tất cả".
         result = subprocess.run(
             [
                 "zenity",
@@ -102,6 +96,8 @@ def pick_directory_native(initial_dir: str) -> Optional[str]:
 
 def pick_file_native(initial_dir: str, title: str, file_filter: str) -> Optional[str]:
     if shutil.which("zenity"):
+        # Gọi trực tiếp qua subprocess.run thay vì run_process để tránh đăng ký vào ProcessManager.
+        # Điều này ngăn việc tiến trình hộp thoại GUI tương tác bị tắt nhầm khi bấm "Hủy tất cả".
         zenity_filter = file_filter.replace("Files", "files").replace("(", "| ").replace(")", "")
         result = subprocess.run(
             [
@@ -140,107 +136,83 @@ class PipelineView(BaseFeatureView):
     icon = ft.Icons.ACCOUNT_TREE
 
     def __init__(self) -> None:
-        self.service = PipelineService()
-        config = self.service.load_config()
-        translator_config = TranslateService().load_config()
-        tts_config = TtsService().load_config()
+        self.source_mode: str = "url"
+        self.selected_steps: list[str] = list(PIPELINE_STEPS)
+        self.workspace_root: str = str(DEFAULT_PIPELINE_WORKSPACE)
+        self.input_url: str = ""
+        self.local_video_path: str = ""
+        self.input_audio_path: str = ""
+        self.input_srt_path: str = ""
+        self.translated_srt_path: str = ""
+        self.merge_muted_video: str = ""
+        self.merge_speech_audio: str = ""
+        self.merge_background_audio: str = ""
 
-        self._source_mode: str = str(config.get("source_mode") or "url")
-        self._selected_steps: list[str] = list(config.get("selected_steps") or PIPELINE_STEPS)
-        self._workspace_root: str = str(config.get("workspace_root") or DEFAULT_PIPELINE_WORKSPACE)
-        self._input_url: str = str(config.get("input_url") or "")
-        self._local_video_path: str = str(config.get("local_video_path") or "")
-        self._input_audio_path: str = str(config.get("input_audio_path") or "")
-        self._input_srt_path: str = str(config.get("input_srt_path") or "")
-        self._translated_srt_path: str = str(config.get("translated_srt_path") or "")
-        self._merge_muted_video: str = str(config.get("merge_muted_video") or "")
-        self._merge_speech_audio: str = str(config.get("merge_speech_audio") or "")
-        self._merge_background_audio: str = str(config.get("merge_background_audio") or "")
+        self.download_use_proxy: bool = True
+        self.stt_model_size: str = "base"
+        self.stt_language: str = "auto"
+        self.stt_speaker_mode: str = "1 người nói"
+        self.translate_batch_enabled: bool = True
+        self.translate_batch_size: str = "10"
+        self.stt_auto_normalize_enabled: bool = False
+        self.translate_model: str = "gemini-1.5-flash"
+        self.translate_api_key: str = ""
+        self.translate_target_language: str = "vi"
+        self.translate_content_safety: bool = False
+        self.translate_replace_enabled: bool = False
+        self.translate_find_text: str = ""
+        self.translate_replace_text: str = ""
 
-        self._download_use_proxy: bool = bool(config.get("download_use_proxy", True))
-        self._stt_model_size: str = str(config.get("stt_model_size") or "base")
-        self._stt_language: str = str(config.get("stt_language") or "auto")
-        self._stt_speaker_mode: str = str(config.get("stt_speaker_mode") or SPEAKER_OPTIONS[0])
-        self._translate_batch_enabled: bool = bool(config.get("translate_batch_enabled", True))
-        self._translate_batch_size: str = str(config.get("translate_batch_size") or 10)
-        self._stt_auto_normalize_enabled: bool = bool(config.get("stt_auto_normalize_enabled", False))
-        self._translate_model: str = str(config.get("translate_model") or translator_config.get("model") or DEFAULT_TRANSLATE_MODEL)
-        api_keys = translator_config.get("api_keys") if isinstance(translator_config.get("api_keys"), dict) else {}
-        self._translate_api_key: str = str(
-            config.get("translate_api_key")
-            or api_keys.get(self._translate_model)
-            or translator_config.get("gemini_api_key")
-            or ""
-        )
-        self._translate_target_language: str = str(
-            config.get("translate_target_language") or translator_config.get("target_language") or "vi"
-        )
-        self._translate_content_safety: bool = bool(
-            config.get("translate_content_safety", translator_config.get("content_safety", False))
-        )
-        self._translate_replace_enabled: bool = bool(config.get("translate_replace_enabled", False))
-        self._translate_find_text: str = str(config.get("translate_find_text") or "")
-        self._translate_replace_text: str = str(config.get("translate_replace_text") or "")
+        self.tts_provider: str = "edge-tts"
+        self.tts_language: str = "vi"
+        self.tts_voice_id: str = ""
+        self.tts_rate: int = 0
+        self.tts_volume: int = 0
+        self.tts_pitch: int = 0
+        self.tts_keep_segments: bool = True
+        self.tts_api_key: str = ""
+        self.tts_voices: list = []
 
-        self._tts_provider: str = str(config.get("tts_provider") or tts_config.get("provider") or DEFAULT_TTS_PROVIDER)
-        self._tts_language: str = str(config.get("tts_language") or tts_config.get("language") or "vi")
-        voice_ids = tts_config.get("voice_ids") if isinstance(tts_config.get("voice_ids"), dict) else {}
-        self._tts_voice_id: str = str(config.get("tts_voice_id") or voice_ids.get(self._tts_provider) or "")
-        self._tts_rate: int = int(config.get("tts_rate") or tts_config.get("rate") or 0)
-        self._tts_volume: int = int(config.get("tts_volume") or tts_config.get("volume") or 0)
-        self._tts_pitch: int = int(config.get("tts_pitch") or tts_config.get("pitch") or 0)
-        self._tts_keep_segments: bool = bool(config.get("tts_keep_segments", tts_config.get("keep_segments", True)))
-        tts_api_keys = tts_config.get("api_keys") if isinstance(tts_config.get("api_keys"), dict) else {}
-        self._tts_api_key: str = str(config.get("tts_api_key") or tts_api_keys.get("gemini-tts") or "")
-        self._tts_voices = self._load_tts_voices()
-        self._ensure_tts_voice()
+        self.intro_video: str = ""
+        self.outro_video: str = ""
+        self.merge_output_name: str = ""
+        self.merge_speech_volume: int = 100
+        self.merge_background_volume: int = 125
 
-        self._intro_video: str = str(config.get("intro_video") or "")
-        self._outro_video: str = str(config.get("outro_video") or "")
-        self._merge_output_name: str = str(config.get("merge_output_name") or "")
-        self._merge_speech_volume: int = int(config.get("merge_speech_volume") or 100)
-        self._merge_background_volume: int = int(config.get("merge_background_volume") or 125)
-
-        self._busy = False
-        self._job_dir: str = ""
-        self._status_text = ""
-        self._progress_value: float = 0
-        self._progress_label = "Chưa chạy"
-        self._logs: list[str] = []
-        self._step_statuses: dict[str, PipelineStepStatus] = {
+        self.busy: bool = False
+        self.job_dir: str = ""
+        self.status_text: str = ""
+        self.progress_value: float = 0.0
+        self.progress_label: str = "Chưa chạy"
+        self.logs: list[str] = []
+        self.step_statuses: dict[str, PipelineStepStatus] = {
             step: PipelineStepStatus(step=step, state="pending", message="Chờ chạy") for step in PIPELINE_STEPS
         }
-        self._result: Optional[PipelineResult] = None
-        self._failed_step: str = ""
+        self.result = None
+        self.failed_step: str = ""
+
         self._controls: dict[str, ft.Control] = {}
         self._page: Optional[ft.Page] = None
-        self._normalize_steps_for_source()
-        self._restore_last_result()
 
-    def _load_tts_voices(self):
-        try:
-            return TtsService().list_voices(
-                provider=self._tts_provider,
-                language=self._tts_language,
-                api_key=self._tts_api_key if self._tts_provider == "gemini-tts" else None,
-            )
-        except Exception:
-            return []
+        self.presenter = PipelinePresenter(self)
+        self.presenter.init_presenter()
 
-    def _ensure_tts_voice(self) -> None:
-        if self._tts_voice_id and any(voice.id == self._tts_voice_id for voice in self._tts_voices):
+    def run_in_thread(self, fn: Callable[[], None]) -> None:
+        if self._page:
+            self._page.run_thread(fn)
+
+    def notify(self, message: str, color: str = "#2E7D32") -> None:
+        if not self._page:
             return
-        self._tts_voice_id = self._tts_voices[0].id if self._tts_voices else ""
-
-    def _normalize_steps_for_source(self) -> None:
-        steps = set(self._selected_steps)
-        if self._source_mode == "url":
-            steps.add("download")
-        else:
-            steps.discard("download")
-            if not steps:
-                steps.add("split")
-        self._selected_steps = [step for step in PIPELINE_STEPS if step in steps]
+        self._page.snack_bar = ft.SnackBar(
+            content=ft.Text(message),
+            bgcolor=color,
+        )
+        self._page.snack_bar.open = True
+        try:
+            self._page.schedule_update()
+        except Exception:
+            self._page.update()
 
     def _request_ui_refresh(self) -> None:
         if not self._page:
@@ -250,97 +222,94 @@ class PipelineView(BaseFeatureView):
         except Exception:
             self._page.update()
 
-    def _first_selected_step(self) -> str:
-        return self._selected_steps[0] if self._selected_steps else ""
-
     def _sync_controls(self) -> None:
         controls = self._controls
         if not controls:
             return
 
-        controls["source_dropdown"].value = self._source_mode
-        controls["url_field"].value = self._input_url
-        controls["url_field"].visible = self._source_mode == "url"
-        controls["local_video_row"].visible = self._source_mode == "local_video"
-        controls["local_video_field"].value = self._local_video_path
-        controls["workspace_field"].value = self._workspace_root
-        controls["job_dir_text"].value = self._job_dir or "Thư mục Job sẽ được tạo khi nhấn bắt đầu."
+        controls["source_dropdown"].value = self.source_mode
+        controls["url_field"].value = self.input_url
+        controls["url_field"].visible = self.source_mode == "url"
+        controls["local_video_row"].visible = self.source_mode == "local_video"
+        controls["local_video_field"].value = self.local_video_path
+        controls["workspace_field"].value = self.workspace_root
+        controls["job_dir_text"].value = self.job_dir or "Thư mục Job sẽ được tạo khi nhấn bắt đầu."
 
         for step in PIPELINE_STEPS:
             checkbox = controls[f"step_{step}"]
-            checkbox.value = step in self._selected_steps
-            checkbox.disabled = self._busy or (step == "download" and self._source_mode in {"url", "local_video"})
+            checkbox.value = step in self.selected_steps
+            checkbox.disabled = self.busy or (step == "download" and self.source_mode in {"url", "local_video"})
 
-        first_step = self._first_selected_step()
+        first_step = self.presenter.first_selected_step()
         controls["input_override_card"].visible = first_step in {"stt", "translate", "tts", "merge"}
         controls["audio_override_row"].visible = first_step == "stt"
         controls["srt_override_row"].visible = first_step == "translate"
         controls["translated_override_row"].visible = first_step == "tts"
         controls["merge_override_hint"].visible = first_step == "merge"
-        controls["merge_override_column"].visible = "merge" in self._selected_steps
-        controls["input_audio_field"].value = self._input_audio_path
-        controls["input_srt_field"].value = self._input_srt_path
-        controls["translated_srt_field"].value = self._translated_srt_path
-        controls["merge_muted_field"].value = self._merge_muted_video
-        controls["merge_speech_field"].value = self._merge_speech_audio
-        controls["merge_background_field"].value = self._merge_background_audio
+        controls["merge_override_column"].visible = "merge" in self.selected_steps
+        controls["input_audio_field"].value = self.input_audio_path
+        controls["input_srt_field"].value = self.input_srt_path
+        controls["translated_srt_field"].value = self.translated_srt_path
+        controls["merge_muted_field"].value = self.merge_muted_video
+        controls["merge_speech_field"].value = self.merge_speech_audio
+        controls["merge_background_field"].value = self.merge_background_audio
 
-        controls["download_proxy_checkbox"].value = self._download_use_proxy
-        controls["stt_model_dropdown"].value = self._stt_model_size
-        controls["stt_language_dropdown"].value = self._stt_language
-        controls["stt_speaker_dropdown"].value = self._stt_speaker_mode
-        controls["stt_auto_merge_checkbox"].value = self._translate_batch_enabled
-        controls["stt_merge_group_field"].value = self._translate_batch_size
-        controls["stt_auto_normalize_checkbox"].value = self._stt_auto_normalize_enabled
-        controls["translate_model_field"].value = self._translate_model
-        controls["translate_api_key_field"].value = self._translate_api_key
-        controls["translate_target_dropdown"].value = self._translate_target_language
-        controls["translate_safety_checkbox"].value = self._translate_content_safety
-        controls["translate_replace_checkbox"].value = self._translate_replace_enabled
-        controls["translate_find_field"].value = self._translate_find_text
-        controls["translate_replace_field"].value = self._translate_replace_text
-        controls["tts_provider_dropdown"].value = self._tts_provider
-        controls["tts_language_dropdown"].value = self._tts_language
+        controls["download_proxy_checkbox"].value = self.download_use_proxy
+        controls["stt_model_dropdown"].value = self.stt_model_size
+        controls["stt_language_dropdown"].value = self.stt_language
+        controls["stt_speaker_dropdown"].value = self.stt_speaker_mode
+        controls["stt_auto_merge_checkbox"].value = self.translate_batch_enabled
+        controls["stt_merge_group_field"].value = self.translate_batch_size
+        controls["stt_auto_normalize_checkbox"].value = self.stt_auto_normalize_enabled
+        controls["translate_model_field"].value = self.translate_model
+        controls["translate_api_key_field"].value = self.translate_api_key
+        controls["translate_target_dropdown"].value = self.translate_target_language
+        controls["translate_safety_checkbox"].value = self.translate_content_safety
+        controls["translate_replace_checkbox"].value = self.translate_replace_enabled
+        controls["translate_find_field"].value = self.translate_find_text
+        controls["translate_replace_field"].value = self.translate_replace_text
+        controls["tts_provider_dropdown"].value = self.tts_provider
+        controls["tts_language_dropdown"].value = self.tts_language
         controls["tts_voice_dropdown"].options = [
             ft.dropdown.Option(key=voice.id, text=f"{voice.name} ({voice.locale} {voice.gender})")
-            for voice in self._tts_voices
+            for voice in self.tts_voices
         ]
-        controls["tts_voice_dropdown"].value = self._tts_voice_id
-        controls["tts_api_key_field"].value = self._tts_api_key
-        controls["tts_api_key_field"].visible = self._tts_provider == "gemini-tts"
-        controls["tts_rate_slider"].value = self._tts_rate
-        controls["tts_rate_value"].value = f"{self._tts_rate:+d}%"
-        controls["tts_volume_slider"].value = self._tts_volume
-        controls["tts_volume_value"].value = f"{self._tts_volume:+d}%"
-        controls["tts_pitch_slider"].value = self._tts_pitch
-        controls["tts_pitch_value"].value = f"{self._tts_pitch:+d}%"
-        controls["tts_keep_segments_checkbox"].value = self._tts_keep_segments
-        controls["intro_video_field"].value = self._intro_video
-        controls["outro_video_field"].value = self._outro_video
-        controls["merge_output_name_field"].value = self._merge_output_name
-        controls["merge_speech_slider"].value = self._merge_speech_volume
-        controls["merge_speech_value"].value = f"{self._merge_speech_volume}%"
-        controls["merge_background_slider"].value = self._merge_background_volume
-        controls["merge_background_value"].value = f"{self._merge_background_volume}%"
+        controls["tts_voice_dropdown"].value = self.tts_voice_id
+        controls["tts_api_key_field"].value = self.tts_api_key
+        controls["tts_api_key_field"].visible = self.tts_provider == "gemini-tts"
+        controls["tts_rate_slider"].value = self.tts_rate
+        controls["tts_rate_value"].value = f"{self.tts_rate:+d}%"
+        controls["tts_volume_slider"].value = self.tts_volume
+        controls["tts_volume_value"].value = f"{self.tts_volume:+d}%"
+        controls["tts_pitch_slider"].value = self.tts_pitch
+        controls["tts_pitch_value"].value = f"{self.tts_pitch:+d}%"
+        controls["tts_keep_segments_checkbox"].value = self.tts_keep_segments
+        controls["intro_video_field"].value = self.intro_video
+        controls["outro_video_field"].value = self.outro_video
+        controls["merge_output_name_field"].value = self.merge_output_name
+        controls["merge_speech_slider"].value = self.merge_speech_volume
+        controls["merge_speech_value"].value = f"{self.merge_speech_volume}%"
+        controls["merge_background_slider"].value = self.merge_background_volume
+        controls["merge_background_value"].value = f"{self.merge_background_volume}%"
 
-        controls["progress_bar"].value = self._progress_value
-        controls["progress_label"].value = self._progress_label
-        controls["status_text"].value = self._status_text
-        controls["log_list"].controls = [ft.Text(line, size=12, color=ft.Colors.BLUE_GREY_100, selectable=True) for line in self._logs[-250:]]
+        controls["progress_bar"].value = self.progress_value
+        controls["progress_label"].value = self.progress_label
+        controls["status_text"].value = self.status_text
+        controls["log_list"].controls = [ft.Text(line, size=12, color=ft.Colors.BLUE_GREY_100, selectable=True) for line in self.logs[-250:]]
         controls["step_list"].controls = self._build_step_rows()
-        controls["open_job_button"].visible = bool(self._job_dir)
-        controls["start_button"].disabled = self._busy
-        controls["retry_button"].visible = self._can_retry()
-        controls["retry_button"].disabled = self._busy or not self._can_retry()
-        controls["stop_button"].disabled = not self._busy
+        controls["open_job_button"].visible = bool(self.job_dir)
+        controls["start_button"].disabled = self.busy
+        controls["retry_button"].visible = self.presenter.can_retry()
+        controls["retry_button"].disabled = self.busy or not self.presenter.can_retry()
+        controls["stop_button"].disabled = not self.busy
 
         for step in PIPELINE_STEPS:
             card = controls.get(f"{step}_config_card")
             badge = controls.get(f"{step}_config_badge")
             if card:
-                card.opacity = 1 if step in self._selected_steps else 0.45
+                card.opacity = 1.0 if step in self.selected_steps else 0.45
             if badge:
-                badge.value = "Sẽ chạy" if step in self._selected_steps else "Không chạy"
+                badge.value = "Sẽ chạy" if step in self.selected_steps else "Không chạy"
 
         for key, control in controls.items():
             if (
@@ -352,8 +321,12 @@ class PipelineView(BaseFeatureView):
                 or key.endswith("_checkbox")
             ):
                 if key not in {"status_text"}:
-                    control.disabled = self._busy
+                    control.disabled = self.busy
         controls["tts_pitch_slider"].disabled = True
+
+    def refresh(self) -> None:
+        self._sync_controls()
+        self._request_ui_refresh()
 
     def _build_step_rows(self) -> list[ft.Control]:
         rows: list[ft.Control] = []
@@ -365,7 +338,7 @@ class PipelineView(BaseFeatureView):
             "skipped": ft.Colors.BLUE_GREY_400,
         }
         for step in PIPELINE_STEPS:
-            status = self._step_statuses.get(step, PipelineStepStatus(step=step))
+            status = self.step_statuses.get(step, PipelineStepStatus(step=step))
             rows.append(
                 ft.Container(
                     bgcolor=SURFACE_BG,
@@ -398,54 +371,54 @@ class PipelineView(BaseFeatureView):
 
         source_dropdown = ft.Dropdown(
             label="Nguồn đầu vào",
-            value=self._source_mode,
+            value=self.source_mode,
             width=220,
             bgcolor=SURFACE_BG,
             border_radius=12,
             options=[ft.dropdown.Option(key=key, text=text) for key, text in SOURCE_OPTIONS],
         )
-        url_field = ft.TextField(label="URL video", value=self._input_url, border_radius=12, expand=True, bgcolor=SURFACE_BG)
-        local_video_field = self._readonly_field("File video gốc", "Chưa chọn video", self._local_video_path)
-        workspace_field = self._readonly_field("Workspace", "Thư mục chứa các Job", self._workspace_root)
+        url_field = ft.TextField(label="URL video", value=self.input_url, border_radius=12, expand=True, bgcolor=SURFACE_BG)
+        local_video_field = self._readonly_field("File video gốc", "Chưa chọn video", self.local_video_path)
+        workspace_field = self._readonly_field("Workspace", "Thư mục chứa các Job", self.workspace_root)
         choose_local_button = ft.OutlinedButton("Chọn file video gốc", icon=ft.Icons.VIDEO_FILE)
         choose_workspace_button = ft.OutlinedButton("Chọn thư mục", icon=ft.Icons.FOLDER)
-        job_dir_text = ft.Text(self._job_dir or "Thư mục Job sẽ được tạo khi nhấn bắt đầu.", color=ft.Colors.BLUE_GREY_100, selectable=True)
+        job_dir_text = ft.Text(self.job_dir or "Thư mục Job sẽ được tạo khi nhấn bắt đầu.", color=ft.Colors.BLUE_GREY_100, selectable=True)
 
         step_controls = {
-            step: ft.Checkbox(label=STEP_TITLES.get(step, step), value=step in self._selected_steps, active_color=ACCENT)
+            step: ft.Checkbox(label=STEP_TITLES.get(step, step), value=step in self.selected_steps, active_color=ACCENT)
             for step in PIPELINE_STEPS
         }
 
-        download_proxy_checkbox = ft.Checkbox(label="Sử dụng proxy", value=self._download_use_proxy, active_color=ACCENT)
+        download_proxy_checkbox = ft.Checkbox(label="Sử dụng proxy", value=self.download_use_proxy, active_color=ACCENT)
 
-        input_audio_field = self._readonly_field("Âm Thanh Cho STT", "Chọn file vocals/audio", self._input_audio_path)
-        input_srt_field = self._readonly_field("SRT Cho Translate", "Chọn transcript .srt", self._input_srt_path)
-        translated_srt_field = self._readonly_field("SRT Đã Dịch Cho TTS", "Chọn translated .srt", self._translated_srt_path)
-        merge_muted_field = self._readonly_field("Video Đã Tắt Tiếng", "Chọn *_muted.mp4", self._merge_muted_video)
-        merge_speech_field = self._readonly_field("Âm Thanh Lồng Tiếng", "Chọn *_speech.mp3", self._merge_speech_audio)
-        merge_background_field = self._readonly_field("Âm Thanh Nền", "Không bắt buộc", self._merge_background_audio)
+        input_audio_field = self._readonly_field("Âm Thanh Cho STT", "Chọn file vocals/audio", self.input_audio_path)
+        input_srt_field = self._readonly_field("SRT Cho Translate", "Chọn transcript .srt", self.input_srt_path)
+        translated_srt_field = self._readonly_field("SRT Đã Dịch Cho TTS", "Chọn translated .srt", self.translated_srt_path)
+        merge_muted_field = self._readonly_field("Video Đã Tắt Tiếng", "Chọn *_muted.mp4", self.merge_muted_video)
+        merge_speech_field = self._readonly_field("Âm Thanh Lồng Tiếng", "Chọn *_speech.mp3", self.merge_speech_audio)
+        merge_background_field = self._readonly_field("Âm Thanh Nền", "Không bắt buộc", self.merge_background_audio)
 
-        stt_model_dropdown = self._dropdown("STT Model", self._stt_model_size, [(item, item) for item in STT_MODELS], 160)
-        stt_language_dropdown = self._dropdown("Ngôn Ngữ Gốc", self._stt_language, list(STT_LANGUAGES.items()), 180)
+        stt_model_dropdown = self._dropdown("STT Model", self.stt_model_size, [(item, item) for item in STT_MODELS], 160)
+        stt_language_dropdown = self._dropdown("Ngôn Ngữ Gốc", self.stt_language, list(STT_LANGUAGES.items()), 180)
         stt_speaker_dropdown = self._dropdown(
             "Số người nói",
-            self._stt_speaker_mode,
+            self.stt_speaker_mode,
             [(item, item) for item in SPEAKER_OPTIONS],
             180,
         )
-        stt_auto_merge_checkbox = ft.Checkbox(label="Dịch theo batch", value=self._translate_batch_enabled, active_color=ACCENT)
+        stt_auto_merge_checkbox = ft.Checkbox(label="Dịch theo batch", value=self.translate_batch_enabled, active_color=ACCENT)
         stt_merge_group_field = ft.TextField(
             label="Số dòng mỗi batch",
-            value=self._translate_batch_size,
+            value=self.translate_batch_size,
             width=160,
             border_radius=12,
             bgcolor=SURFACE_BG,
         )
-        stt_auto_normalize_checkbox = ft.Checkbox(label="Tự chuẩn hóa text", value=self._stt_auto_normalize_enabled, active_color=ACCENT)
-        translate_model_field = ft.TextField(label="Model Dịch", value=self._translate_model, border_radius=12, width=230, bgcolor=SURFACE_BG)
+        stt_auto_normalize_checkbox = ft.Checkbox(label="Tự chuẩn hóa text", value=self.stt_auto_normalize_enabled, active_color=ACCENT)
+        translate_model_field = ft.TextField(label="Model Dịch", value=self.translate_model, border_radius=12, width=230, bgcolor=SURFACE_BG)
         translate_api_key_field = ft.TextField(
             label="Gemini API Key",
-            value=self._translate_api_key,
+            value=self.translate_api_key,
             password=True,
             can_reveal_password=True,
             border_radius=12,
@@ -454,70 +427,70 @@ class PipelineView(BaseFeatureView):
         )
         translate_target_dropdown = self._dropdown(
             "Ngôn Ngữ Đích",
-            self._translate_target_language,
+            self.translate_target_language,
             list(TRANSLATE_LANGUAGES.items()),
             180,
         )
-        translate_safety_checkbox = ft.Checkbox(label="Lọc Nội Dung Nhạy Cảm", value=self._translate_content_safety, active_color=ACCENT)
-        translate_replace_checkbox = ft.Checkbox(label="Replace sau khi dịch", value=self._translate_replace_enabled, active_color=ACCENT)
+        translate_safety_checkbox = ft.Checkbox(label="Lọc Nội Dung Nhạy Cảm", value=self.translate_content_safety, active_color=ACCENT)
+        translate_replace_checkbox = ft.Checkbox(label="Replace sau khi dịch", value=self.translate_replace_enabled, active_color=ACCENT)
         translate_find_field = ft.TextField(
             label="Tìm từ ngữ",
-            value=self._translate_find_text,
+            value=self.translate_find_text,
             border_radius=12,
             expand=True,
             bgcolor=SURFACE_BG,
         )
         translate_replace_field = ft.TextField(
             label="Thay thế bằng",
-            value=self._translate_replace_text,
+            value=self.translate_replace_text,
             border_radius=12,
             expand=True,
             bgcolor=SURFACE_BG,
         )
 
-        tts_provider_dropdown = self._dropdown("Nhà Cung Cấp TTS", self._tts_provider, TTS_PROVIDERS, 180)
-        tts_language_dropdown = self._dropdown("Ngôn Ngữ TTS", self._tts_language, list(TTS_LANGUAGES.items()), 160)
-        tts_voice_dropdown = ft.Dropdown(label="Giọng Đọc", value=self._tts_voice_id, options=[], bgcolor=SURFACE_BG, border_radius=12, expand=True)
+        tts_provider_dropdown = self._dropdown("Nhà Cung Cấp TTS", self.tts_provider, TTS_PROVIDERS, 180)
+        tts_language_dropdown = self._dropdown("Ngôn Ngữ TTS", self.tts_language, list(TTS_LANGUAGES.items()), 160)
+        tts_voice_dropdown = ft.Dropdown(label="Giọng Đọc", value=self.tts_voice_id, options=[], bgcolor=SURFACE_BG, border_radius=12, expand=True)
         tts_api_key_field = ft.TextField(
             label="Gemini TTS API Key",
-            value=self._tts_api_key,
+            value=self.tts_api_key,
             password=True,
             can_reveal_password=True,
             border_radius=12,
             expand=True,
             bgcolor=SURFACE_BG,
-            visible=self._tts_provider == "gemini-tts",
+            visible=self.tts_provider == "gemini-tts",
         )
-        tts_rate_value = ft.Text(f"{self._tts_rate:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
-        tts_volume_value = ft.Text(f"{self._tts_volume:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
-        tts_pitch_value = ft.Text(f"{self._tts_pitch:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
-        tts_rate_slider = ft.Slider(min=-50, max=100, divisions=150, value=self._tts_rate, label="{value}%", active_color=ACCENT)
-        tts_volume_slider = ft.Slider(min=-50, max=100, divisions=150, value=self._tts_volume, label="{value}%", active_color=ACCENT)
-        tts_pitch_slider = ft.Slider(min=-50, max=50, divisions=100, value=self._tts_pitch, label="{value}%", active_color=ACCENT, disabled=True)
-        tts_keep_segments_checkbox = ft.Checkbox(label="Giữ segment lẻ", value=self._tts_keep_segments, active_color=ACCENT)
+        tts_rate_value = ft.Text(f"{self.tts_rate:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
+        tts_volume_value = ft.Text(f"{self.tts_volume:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
+        tts_pitch_value = ft.Text(f"{self.tts_pitch:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
+        tts_rate_slider = ft.Slider(min=-50, max=100, divisions=150, value=self.tts_rate, label="{value}%", active_color=ACCENT)
+        tts_volume_slider = ft.Slider(min=-50, max=100, divisions=150, value=self.tts_volume, label="{value}%", active_color=ACCENT)
+        tts_pitch_slider = ft.Slider(min=-50, max=50, divisions=100, value=self.tts_pitch, label="{value}%", active_color=ACCENT, disabled=True)
+        tts_keep_segments_checkbox = ft.Checkbox(label="Giữ segment lẻ", value=self.tts_keep_segments, active_color=ACCENT)
 
-        intro_video_field = self._readonly_field("Video Mở Đầu", "Không bắt buộc", self._intro_video)
-        outro_video_field = self._readonly_field("Video Kết Thúc", "Không bắt buộc", self._outro_video)
+        intro_video_field = self._readonly_field("Video Mở Đầu", "Không bắt buộc", self.intro_video)
+        outro_video_field = self._readonly_field("Video Kết Thúc", "Không bắt buộc", self.outro_video)
         merge_output_name_field = ft.TextField(
             label="Tên File Xuất",
-            value=self._merge_output_name,
+            value=self.merge_output_name,
             hint_text="Để trống để dùng <source>_final.mp4",
             border_radius=12,
             expand=True,
             bgcolor=SURFACE_BG,
         )
-        merge_speech_value = ft.Text(f"{self._merge_speech_volume}%", color=ft.Colors.BLUE_GREY_100, width=54)
-        merge_background_value = ft.Text(f"{self._merge_background_volume}%", color=ft.Colors.BLUE_GREY_100, width=54)
-        merge_speech_slider = ft.Slider(min=0, max=200, divisions=200, value=self._merge_speech_volume, label="{value}%", active_color=ACCENT)
-        merge_background_slider = ft.Slider(min=0, max=200, divisions=200, value=self._merge_background_volume, label="{value}%", active_color=ACCENT)
+        merge_speech_value = ft.Text(f"{self.merge_speech_volume}%", color=ft.Colors.BLUE_GREY_100, width=54)
+        merge_background_value = ft.Text(f"{self.merge_background_volume}%", color=ft.Colors.BLUE_GREY_100, width=54)
+        merge_speech_slider = ft.Slider(min=0, max=200, divisions=200, value=self.merge_speech_volume, label="{value}%", active_color=ACCENT)
+        merge_background_slider = ft.Slider(min=0, max=200, divisions=200, value=self.merge_background_volume, label="{value}%", active_color=ACCENT)
 
-        progress_bar = ft.ProgressBar(value=self._progress_value, color=ACCENT, bgcolor="#2E2E2E")
-        progress_label = ft.Text(self._progress_label, color=ft.Colors.BLUE_GREY_100)
-        status_text = ft.Text(self._status_text, color=WARN, selectable=True)
+        progress_bar = ft.ProgressBar(value=self.progress_value, color=ACCENT, bgcolor="#2E2E2E")
+        progress_label = ft.Text(self.progress_label, color=ft.Colors.BLUE_GREY_100)
+        status_text = ft.Text(self.status_text, color=WARN, selectable=True)
         start_button = ft.ElevatedButton("Bắt đầu quy trình", icon=ft.Icons.PLAY_ARROW, bgcolor=ACCENT, color=ft.Colors.BLACK)
-        retry_button = ft.OutlinedButton("Chạy lại từ bước lỗi", icon=ft.Icons.RESTART_ALT, visible=self._can_retry())
+        retry_button = ft.OutlinedButton("Chạy lại từ bước lỗi", icon=ft.Icons.RESTART_ALT, visible=self.presenter.can_retry())
         stop_button = ft.OutlinedButton("Dừng", icon=ft.Icons.STOP, disabled=True)
-        open_job_button = ft.OutlinedButton("Mở thư mục Job", icon=ft.Icons.FOLDER_OPEN, visible=bool(self._job_dir))
+        open_job_button = ft.OutlinedButton("Mở thư mục Job", icon=ft.Icons.FOLDER_OPEN, visible=bool(self.job_dir))
         log_list = ft.ListView(spacing=3, height=260, auto_scroll=True)
         step_list = ft.ListView(spacing=8, height=340)
 
@@ -634,7 +607,7 @@ class PipelineView(BaseFeatureView):
             merge_badge,
             [
                 merge_override_column,
-                ft.Text("Nếu workflow không chạy bước Tách Video hoặc bị lỗi ở Merge, hãy chọn thủ công file *_muted.mp4 và *_speech.mp3 tại đây.", size=12, color=ft.Colors.BLUE_GREY_200),
+                ft.Text("Nếu workflow không chạy bước Tách Video hoặc bị lỗi ở Merge, hãy chọn thủ công file *_muted.mp4 and *_speech.mp3 tại đây.", size=12, color=ft.Colors.BLUE_GREY_200),
                 ft.Row([merge_output_name_field], spacing=12),
                 ft.Row([intro_video_field, choose_intro_button, clear_intro_button], spacing=12),
                 ft.Row([outro_video_field, choose_outro_button, clear_outro_button], spacing=12),
@@ -742,281 +715,96 @@ class PipelineView(BaseFeatureView):
             picked = pick_file_native(start_dir, title, file_filter)
             if picked:
                 setattr(self, target, picked)
-                self._status_text = ""
+                self.status_text = ""
                 request_ui_refresh()
 
-        def reload_tts_voices() -> None:
-            self._tts_voices = self._load_tts_voices()
-            self._ensure_tts_voice()
-
         def sync_from_controls() -> None:
-            self._source_mode = source_dropdown.value or self._source_mode
-            self._input_url = url_field.value or ""
-            self._workspace_root = workspace_field.value or self._workspace_root
-            self._selected_steps = [step for step in PIPELINE_STEPS if step_controls[step].value]
-            self._download_use_proxy = bool(download_proxy_checkbox.value)
-            self._stt_model_size = stt_model_dropdown.value or "base"
-            self._stt_language = stt_language_dropdown.value or "auto"
-            self._stt_speaker_mode = stt_speaker_dropdown.value or SPEAKER_OPTIONS[0]
-            self._translate_batch_enabled = bool(stt_auto_merge_checkbox.value)
-            self._translate_batch_size = stt_merge_group_field.value or "10"
-            self._stt_auto_normalize_enabled = bool(stt_auto_normalize_checkbox.value)
-            self._translate_model = translate_model_field.value or DEFAULT_TRANSLATE_MODEL
-            self._translate_api_key = translate_api_key_field.value or ""
-            self._translate_target_language = translate_target_dropdown.value or "vi"
-            self._translate_content_safety = bool(translate_safety_checkbox.value)
-            self._translate_replace_enabled = bool(translate_replace_checkbox.value)
-            self._translate_find_text = translate_find_field.value or ""
-            self._translate_replace_text = translate_replace_field.value or ""
-            self._tts_provider = tts_provider_dropdown.value or DEFAULT_TTS_PROVIDER
-            self._tts_language = tts_language_dropdown.value or "vi"
-            self._tts_voice_id = tts_voice_dropdown.value or self._tts_voice_id
-            self._tts_api_key = tts_api_key_field.value or ""
-            self._tts_rate = int(tts_rate_slider.value or 0)
-            self._tts_volume = int(tts_volume_slider.value or 0)
-            self._tts_pitch = int(tts_pitch_slider.value or 0)
-            self._tts_keep_segments = bool(tts_keep_segments_checkbox.value)
-            self._merge_output_name = merge_output_name_field.value or ""
-            self._merge_speech_volume = int(merge_speech_slider.value or 100)
-            self._merge_background_volume = int(merge_background_slider.value or 125)
-            self._normalize_steps_for_source()
-
-        def build_pipeline_config() -> PipelineConfig:
-            sync_from_controls()
-            return PipelineConfig(
-                source_mode=self._source_mode,
-                selected_steps=self._selected_steps,
-                workspace_root=self._workspace_root,
-                input_url=self._input_url,
-                local_video_path=self._local_video_path,
-                input_audio_path=self._input_audio_path,
-                input_srt_path=self._input_srt_path,
-                translated_srt_path=self._translated_srt_path,
-                merge_muted_video=self._merge_muted_video,
-                merge_speech_audio=self._merge_speech_audio,
-                merge_background_audio=self._merge_background_audio,
-                download_use_proxy=self._download_use_proxy,
-                stt_model_size=self._stt_model_size,
-                stt_language=self._stt_language,
-                stt_speaker_mode=self._stt_speaker_mode,
-                stt_auto_merge_enabled=False,
-                stt_merge_group_size=1,
-                stt_auto_normalize_enabled=self._stt_auto_normalize_enabled,
-                translate_model=self._translate_model,
-                translate_api_key=self._translate_api_key,
-                translate_target_language=self._translate_target_language,
-                translate_content_safety=self._translate_content_safety,
-                translate_batch_enabled=self._translate_batch_enabled,
-                translate_batch_size=self._positive_int(self._translate_batch_size, 10),
-                translate_replace_enabled=self._translate_replace_enabled,
-                translate_find_text=self._translate_find_text,
-                translate_replace_text=self._translate_replace_text,
-                tts_provider=self._tts_provider,
-                tts_language=self._tts_language,
-                tts_voice_id=self._tts_voice_id,
-                tts_rate=self._tts_rate,
-                tts_volume=self._tts_volume,
-                tts_pitch=self._tts_pitch,
-                tts_keep_segments=self._tts_keep_segments,
-                tts_api_key=self._tts_api_key,
-                intro_video=self._intro_video,
-                outro_video=self._outro_video,
-                merge_output_name=self._merge_output_name,
-                merge_speech_volume=self._merge_speech_volume,
-                merge_background_volume=self._merge_background_volume,
-            )
+            self.source_mode = source_dropdown.value or self.source_mode
+            self.input_url = url_field.value or ""
+            self.workspace_root = workspace_field.value or self.workspace_root
+            self.selected_steps = [step for step in PIPELINE_STEPS if step_controls[step].value]
+            self.download_use_proxy = bool(download_proxy_checkbox.value)
+            self.stt_model_size = stt_model_dropdown.value or "base"
+            self.stt_language = stt_language_dropdown.value or "auto"
+            self.stt_speaker_mode = stt_speaker_dropdown.value or SPEAKER_OPTIONS[0]
+            self.translate_batch_enabled = bool(stt_auto_merge_checkbox.value)
+            self.translate_batch_size = stt_merge_group_field.value or "10"
+            self.stt_auto_normalize_enabled = bool(stt_auto_normalize_checkbox.value)
+            self.translate_model = translate_model_field.value or DEFAULT_TRANSLATE_MODEL
+            self.translate_api_key = translate_api_key_field.value or ""
+            self.translate_target_language = translate_target_dropdown.value or "vi"
+            self.translate_content_safety = bool(translate_safety_checkbox.value)
+            self.translate_replace_enabled = bool(translate_replace_checkbox.value)
+            self.translate_find_text = translate_find_field.value or ""
+            self.translate_replace_text = translate_replace_field.value or ""
+            self.tts_provider = tts_provider_dropdown.value or DEFAULT_TTS_PROVIDER
+            self.tts_language = tts_language_dropdown.value or "vi"
+            self.tts_voice_id = tts_voice_dropdown.value or self.tts_voice_id
+            self.tts_api_key = tts_api_key_field.value or ""
+            self.tts_rate = int(tts_rate_slider.value or 0)
+            self.tts_volume = int(tts_volume_slider.value or 0)
+            self.tts_pitch = int(tts_pitch_slider.value or 0)
+            self.tts_keep_segments = bool(tts_keep_segments_checkbox.value)
+            self.merge_output_name = merge_output_name_field.value or ""
+            self.merge_speech_volume = int(merge_speech_slider.value or 100)
+            self.merge_background_volume = int(merge_background_slider.value or 125)
+            self.presenter.normalize_steps_for_source()
 
         def on_source_change(event: ft.ControlEvent) -> None:
-            self._source_mode = event.control.value or "url"
-            self._normalize_steps_for_source()
+            self.source_mode = event.control.value or "url"
+            self.presenter.normalize_steps_for_source()
             request_ui_refresh()
 
         def on_step_change(_: ft.ControlEvent) -> None:
-            self._selected_steps = [step for step in PIPELINE_STEPS if step_controls[step].value]
-            self._normalize_steps_for_source()
+            self.selected_steps = [step for step in PIPELINE_STEPS if step_controls[step].value]
+            self.presenter.normalize_steps_for_source()
             request_ui_refresh()
 
         def on_tts_provider_change(event: ft.ControlEvent) -> None:
-            self._tts_provider = event.control.value or DEFAULT_TTS_PROVIDER
-            reload_tts_voices()
+            self.tts_provider = event.control.value or DEFAULT_TTS_PROVIDER
+            self.presenter.reload_tts_voices()
+            self.presenter.ensure_tts_voice()
             request_ui_refresh()
 
         def on_tts_language_change(event: ft.ControlEvent) -> None:
-            self._tts_language = event.control.value or "vi"
-            reload_tts_voices()
+            self.tts_language = event.control.value or "vi"
+            self.presenter.reload_tts_voices()
+            self.presenter.ensure_tts_voice()
             request_ui_refresh()
 
         def on_slider_change(_: ft.ControlEvent) -> None:
             sync_from_controls()
             request_ui_refresh()
 
-        def ui_log(message: str) -> None:
-            self._logs.append(message)
-            request_ui_refresh()
-
-        def ui_progress(progress: PipelineProgress) -> None:
-            self._job_dir = progress.context.job_dir
-            self._progress_value = max(0, min(1, progress.overall_percent / 100))
-            self._progress_label = f"Bước {progress.step_index}/{progress.total_steps}: {STEP_TITLES.get(progress.current_step, progress.current_step)}"
-            self._status_text = progress.message
-            status = self._step_statuses.get(progress.current_step)
-            if status and status.state in {"pending", "running"}:
-                status.state = "running"
-                status.message = progress.message
-                status.percent = progress.step_percent
-            request_ui_refresh()
-
-        def ui_step_done(status: PipelineStepStatus) -> None:
-            self._step_statuses[status.step] = status
-            request_ui_refresh()
-
-        def ui_success(result: PipelineResult) -> None:
-            self._busy = False
-            self._result = result
-            self._failed_step = ""
-            self._job_dir = result.job_dir or self._job_dir
-            self._progress_value = 1
-            self._progress_label = "Quy trình đã hoàn thành"
-            self._status_text = f"Đã hoàn tất: {result.final_video or result.job_dir}"
-            for status in result.steps:
-                self._step_statuses[status.step] = status
-            self.service.save_last_result(self._build_visible_result(result))
-            request_ui_refresh()
-            page.snack_bar = ft.SnackBar(content=ft.Text("Quy trình đã hoàn thành."), bgcolor=ft.Colors.GREEN_700, open=True)
-            request_ui_refresh()
-
-        def ui_error(result: PipelineResult) -> None:
-            self._busy = False
-            self._result = result
-            self._failed_step = self._find_failed_step(result)
-            self._job_dir = result.job_dir or self._job_dir
-            if self._failed_step and result.context:
-                self._status_text = (
-                    f"{result.error_message or 'Quy trình thất bại.'} "
-                    f"Sau khi chỉnh config, có thể chạy lại từ bước {STEP_TITLES.get(self._failed_step, self._failed_step)}."
-                )
-            else:
-                self._status_text = result.error_message or "Quy trình thất bại."
-            for status in result.steps:
-                self._step_statuses[status.step] = status
-            for step in PIPELINE_STEPS:
-                current = self._step_statuses.get(step)
-                if current and current.state == "pending":
-                    current.state = "skipped"
-                    current.message = "Đã dừng do quy trình gặp lỗi ở bước trước."
-            self.service.save_last_result(self._build_visible_result(result))
-            request_ui_refresh()
-
         def start_pipeline(_: ft.ControlEvent) -> None:
-            if self.service.is_processing:
-                self._status_text = "Đang có quy trình chạy, vui lòng đợi hoàn tất."
-                request_ui_refresh()
-                return
-            config = build_pipeline_config()
-            self._busy = True
-            self._job_dir = ""
-            self._progress_value = 0
-            self._progress_label = "Đang chuẩn bị..."
-            self._status_text = ""
-            self._logs = []
-            self._result = None
-            self._failed_step = ""
-            self._step_statuses = {
-                step: PipelineStepStatus(
-                    step=step,
-                    state="pending" if step in config.selected_steps else "skipped",
-                    message="Chờ chạy" if step in config.selected_steps else "Không chọn",
-                )
-                for step in PIPELINE_STEPS
-            }
-            request_ui_refresh()
-
-            callbacks = PipelineCallbacks(
-                on_progress=ui_progress,
-                on_step_done=ui_step_done,
-                on_log=ui_log,
-            )
-
-            def worker() -> None:
-                result = self.service.run_job(config=config, callbacks=callbacks)
-                if result.ok:
-                    ui_success(result)
-                else:
-                    ui_error(result)
-
-            page.run_thread(worker)
+            sync_from_controls()
+            self.presenter.start_pipeline()
 
         def retry_pipeline(_: ft.ControlEvent) -> None:
-            if self.service.is_processing:
-                self._status_text = "Đang có quy trình chạy, vui lòng đợi hoàn tất."
-                request_ui_refresh()
-                return
-            if not self._can_retry() or not self._result or not self._result.context:
-                self._status_text = "Chưa có bước lỗi để chạy lại."
-                request_ui_refresh()
-                return
-            config = build_pipeline_config()
-            if self._failed_step not in config.selected_steps:
-                self._status_text = "Vui lòng giữ bước lỗi trong danh sách bước để chạy lại."
-                request_ui_refresh()
-                return
-
-            self._busy = True
-            self._progress_value = 0
-            self._progress_label = f"Đang chuẩn bị chạy lại từ bước {STEP_TITLES.get(self._failed_step, self._failed_step)}..."
-            self._status_text = ""
-            self._logs.append(
-                f"--- Chạy lại từ bước {STEP_TITLES.get(self._failed_step, self._failed_step)} bằng config mới ---"
-            )
-            self._mark_retry_steps(config)
-            request_ui_refresh()
-
-            callbacks = PipelineCallbacks(
-                on_progress=ui_progress,
-                on_step_done=ui_step_done,
-                on_log=ui_log,
-            )
-            resume_context = self._result.context
-            start_step = self._failed_step
-
-            def worker() -> None:
-                result = self.service.run_job(
-                    config=config,
-                    callbacks=callbacks,
-                    resume_context=resume_context,
-                    start_step=start_step,
-                )
-                if result.ok:
-                    ui_success(result)
-                else:
-                    ui_error(result)
-
-            page.run_thread(worker)
+            sync_from_controls()
+            self.presenter.retry_pipeline()
 
         def stop_pipeline(_: ft.ControlEvent) -> None:
-            self.service.stop()
-            self._status_text = "Đang yêu cầu dừng quy trình..."
-            request_ui_refresh()
+            self.presenter.stop_pipeline()
 
         def open_job(_: ft.ControlEvent) -> None:
-            if self._job_dir:
-                open_folder(self._job_dir)
+            self.presenter.open_job()
 
         source_dropdown.on_select = on_source_change
         for checkbox in step_controls.values():
             checkbox.on_change = on_step_change
-        choose_local_button.on_click = lambda _: choose_file("_local_video_path", "Chọn file video gốc", VIDEO_FILTER)
+        choose_local_button.on_click = lambda _: choose_file("local_video_path", "Chọn file video gốc", VIDEO_FILTER)
         choose_workspace_button.on_click = lambda _: self._choose_workspace(request_ui_refresh)
-        choose_audio_button.on_click = lambda _: choose_file("_input_audio_path", "Chọn audio cho STT", AUDIO_FILTER)
-        choose_srt_button.on_click = lambda _: choose_file("_input_srt_path", "Chọn SRT cho bước dịch", SRT_FILTER)
-        choose_translated_button.on_click = lambda _: choose_file("_translated_srt_path", "Chọn SRT đã dịch cho TTS", SRT_FILTER)
-        choose_merge_muted_button.on_click = lambda _: choose_file("_merge_muted_video", "Chọn video đã tắt tiếng", VIDEO_FILTER)
-        choose_merge_speech_button.on_click = lambda _: choose_file("_merge_speech_audio", "Chọn âm thanh lồng tiếng", AUDIO_FILTER)
-        choose_merge_background_button.on_click = lambda _: choose_file("_merge_background_audio", "Chọn âm thanh nền", AUDIO_FILTER)
-        choose_intro_button.on_click = lambda _: choose_file("_intro_video", "Chọn video mở đầu", VIDEO_FILTER)
-        clear_intro_button.on_click = lambda _: self._clear_attr("_intro_video", request_ui_refresh)
-        choose_outro_button.on_click = lambda _: choose_file("_outro_video", "Chọn video kết thúc", VIDEO_FILTER)
-        clear_outro_button.on_click = lambda _: self._clear_attr("_outro_video", request_ui_refresh)
+        choose_audio_button.on_click = lambda _: choose_file("input_audio_path", "Chọn audio cho STT", AUDIO_FILTER)
+        choose_srt_button.on_click = lambda _: choose_file("input_srt_path", "Chọn SRT cho bước dịch", SRT_FILTER)
+        choose_translated_button.on_click = lambda _: choose_file("translated_srt_path", "Chọn SRT đã dịch cho TTS", SRT_FILTER)
+        choose_merge_muted_button.on_click = lambda _: choose_file("merge_muted_video", "Chọn video đã tắt tiếng", VIDEO_FILTER)
+        choose_merge_speech_button.on_click = lambda _: choose_file("merge_speech_audio", "Chọn âm thanh lồng tiếng", AUDIO_FILTER)
+        choose_merge_background_button.on_click = lambda _: choose_file("merge_background_audio", "Chọn âm thanh nền", AUDIO_FILTER)
+        choose_intro_button.on_click = lambda _: choose_file("intro_video", "Chọn video mở đầu", VIDEO_FILTER)
+        clear_intro_button.on_click = lambda _: self._clear_attr("intro_video", request_ui_refresh)
+        choose_outro_button.on_click = lambda _: choose_file("outro_video", "Chọn video kết thúc", VIDEO_FILTER)
+        clear_outro_button.on_click = lambda _: self._clear_attr("outro_video", request_ui_refresh)
         tts_provider_dropdown.on_select = on_tts_provider_change
         tts_language_dropdown.on_select = on_tts_language_change
         download_proxy_checkbox.on_change = on_slider_change
@@ -1139,92 +927,16 @@ class PipelineView(BaseFeatureView):
         )
 
     def _choose_workspace(self, refresh) -> None:
-        picked = pick_directory_native(self._workspace_root or str(DEFAULT_PIPELINE_WORKSPACE))
+        picked = pick_directory_native(self.workspace_root or str(DEFAULT_PIPELINE_WORKSPACE))
         if picked:
-            self._workspace_root = picked
-            self._status_text = ""
+            self.workspace_root = picked
+            self.status_text = ""
             refresh()
 
     def _clear_attr(self, name: str, refresh) -> None:
         setattr(self, name, "")
-        self._status_text = ""
+        self.status_text = ""
         refresh()
-
-    def _restore_last_result(self) -> None:
-        result = self.service.load_last_result()
-        if not result or not result.job_dir:
-            return
-        self._result = result
-        self._job_dir = result.job_dir
-        self._failed_step = self._find_failed_step(result)
-        for status in result.steps:
-            self._step_statuses[status.step] = status
-
-        if result.ok:
-            self._progress_value = 1
-            self._progress_label = "Lần chạy gần nhất đã hoàn thành"
-            self._status_text = f"Job gần nhất: {result.final_video or result.job_dir}"
-        else:
-            completed = sum(1 for status in self._step_statuses.values() if status.state == "done")
-            selected_count = max(len([step for step in PIPELINE_STEPS if step in self._selected_steps]), 1)
-            self._progress_value = max(0, min(1, completed / selected_count))
-            if self._failed_step:
-                self._progress_label = f"Lần chạy gần nhất lỗi ở bước {STEP_TITLES.get(self._failed_step, self._failed_step)}"
-                self._status_text = (
-                    f"{result.error_message or 'Quy trình thất bại.'} "
-                    "Bạn có thể chỉnh config rồi chạy lại từ bước lỗi."
-                )
-            else:
-                self._progress_label = "Lần chạy gần nhất chưa hoàn thành"
-                self._status_text = result.error_message or "Quy trình gần nhất chưa hoàn thành."
-
-    def _build_visible_result(self, base_result: PipelineResult) -> PipelineResult:
-        steps = [
-            self._step_statuses.get(step, PipelineStepStatus(step=step))
-            for step in PIPELINE_STEPS
-        ]
-        return PipelineResult(
-            ok=base_result.ok,
-            job_dir=base_result.job_dir or self._job_dir or None,
-            context=base_result.context or (self._result.context if self._result else None),
-            steps=steps,
-            final_video=base_result.final_video,
-            error_message=base_result.error_message,
-            elapsed_sec=base_result.elapsed_sec,
-        )
-
-    def _can_retry(self) -> bool:
-        return bool(
-            self._result
-            and not self._result.ok
-            and self._result.context
-            and self._failed_step
-        )
-
-    @staticmethod
-    def _find_failed_step(result: PipelineResult) -> str:
-        for status in result.steps:
-            if status.state == "error":
-                return status.step
-        return ""
-
-    def _mark_retry_steps(self, config: PipelineConfig) -> None:
-        should_reset = False
-        for step in PIPELINE_STEPS:
-            status = self._step_statuses.get(step, PipelineStepStatus(step=step))
-            if step == self._failed_step:
-                should_reset = True
-            if step not in config.selected_steps:
-                status.state = "skipped"
-                status.message = "Không chọn"
-                status.percent = None
-                status.error_message = None
-            elif should_reset:
-                status.state = "pending"
-                status.message = "Chờ chạy lại"
-                status.percent = None
-                status.error_message = None
-            self._step_statuses[step] = status
 
     @staticmethod
     def _readonly_field(label: str, hint_text: str, value: str) -> ft.TextField:
@@ -1270,10 +982,3 @@ class PipelineView(BaseFeatureView):
             border_radius=12,
             options=[ft.dropdown.Option(key=key, text=text) for key, text in options],
         )
-
-    @staticmethod
-    def _positive_int(value: str, default: int) -> int:
-        try:
-            return max(int(str(value).strip()), 1)
-        except (TypeError, ValueError):
-            return default

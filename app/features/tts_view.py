@@ -5,19 +5,17 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import flet as ft
 
 from app.features.base import BaseFeatureView
-from app.services.tts_service import TtsCallbacks, TtsService
-from utils.tts import (
+from app.presenter.tts_presenter import TtsPresenter
+from infrastructure.providers.tts import (
     DEFAULT_TTS_OUTPUT_DIR,
     DEFAULT_TTS_PROVIDER,
     GeneratedSegment,
     LANGUAGE_OPTIONS,
-    TtsProgress,
-    TtsResult,
 )
 
 
@@ -39,6 +37,8 @@ def open_folder(path: str) -> None:
 
 def pick_directory_native(initial_dir: str) -> Optional[str]:
     if shutil.which("zenity"):
+        # Gọi trực tiếp qua subprocess.run thay vì run_process để tránh đăng ký vào ProcessManager.
+        # Điều này ngăn việc tiến trình hộp thoại GUI tương tác bị tắt nhầm khi bấm "Hủy tất cả".
         result = subprocess.run(
             [
                 "zenity",
@@ -72,6 +72,8 @@ def pick_directory_native(initial_dir: str) -> Optional[str]:
 
 def pick_srt_file_native(initial_dir: str) -> Optional[str]:
     if shutil.which("zenity"):
+        # Gọi trực tiếp qua subprocess.run thay vì run_process để tránh đăng ký vào ProcessManager.
+        # Điều này ngăn việc tiến trình hộp thoại GUI tương tác bị tắt nhầm khi bấm "Hủy tất cả".
         result = subprocess.run(
             [
                 "zenity",
@@ -103,82 +105,64 @@ def pick_srt_file_native(initial_dir: str) -> Optional[str]:
     return picked or None
 
 
-def find_latest_translated_srt(base_dir: str | Path = DEFAULT_TTS_OUTPUT_DIR) -> Optional[Path]:
-    directory = Path(base_dir).expanduser()
-    if not directory.exists():
-        return None
-    preferred = [path for path in directory.glob("*_vi.srt") if path.is_file()]
-    candidates = preferred or [path for path in directory.glob("*.srt") if path.is_file()]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda path: path.stat().st_mtime)
-
-
 class TtsView(BaseFeatureView):
     feature_id = "text_to_speech"
     title = "Lồng Tiếng AI"
     icon = ft.Icons.RECORD_VOICE_OVER
 
     def __init__(self) -> None:
-        self.service = TtsService()
-        config = self.service.load_config()
-        self._input_srt: str = ""
-        self._output_dir: str = str(DEFAULT_TTS_OUTPUT_DIR)
-        self._provider: str = str(config.get("provider") or DEFAULT_TTS_PROVIDER)
-        self._language: str = str(config.get("language") or "vi")
-        self._voice_ids: dict = dict(config.get("voice_ids") or {})
-        self._voice_id: str = str(self._voice_ids.get(self._provider) or "")
-        self._rate: int = int(config.get("rate") or 0)
-        self._volume: int = int(config.get("volume") or 0)
-        self._pitch: int = int(config.get("pitch") or 0)
-        self._keep_segments: bool = bool(config.get("keep_segments", True))
-        self._auto_merge: bool = bool(config.get("auto_merge", True))
-        self._max_workers: int = int(config.get("max_workers") or 5)
-        if not self._auto_merge:
-            self._keep_segments = True
-        api_keys = config.get("api_keys")
-        self._api_keys: dict = dict(api_keys) if isinstance(api_keys, dict) else {}
-        self._api_key: str = str(self._api_keys.get("gemini-tts") or "")
-        self._voices = self._load_voices()
-        self._status_text: str = ""
-        self._stage_text: str = "--"
-        self._current_file_text: str = "--"
-        self._progress_value: Optional[float] = None
-        self._progress_visible: bool = False
-        self._show_progress_card: bool = False
-        self._segments: list[GeneratedSegment] = []
-        self._line_count_text: str = "Đã tạo: 0 segment"
-        self._busy: bool = False
-        self._output_file: Optional[str] = None
-        self._open_folder_visible: bool = False
+        self.presenter = TtsPresenter(self)
+        self.input_srt: str = ""
+        self.output_dir: str = str(DEFAULT_TTS_OUTPUT_DIR)
+        self.provider: str = ""
+        self.language: str = ""
+        self.voice_ids: dict = {}
+        self.voice_id: str = ""
+        self.rate: int = 0
+        self.volume: int = 0
+        self.pitch: int = 0
+        self.keep_segments: bool = True
+        self.auto_merge: bool = True
+        self.max_workers: int = 5
+        self.api_keys: dict = {}
+        self.api_key: str = ""
+        self.voices: list = []
+        self.status_text: str = ""
+        self.stage_text: str = "--"
+        self.current_file_text: str = "--"
+        self.progress_value: Optional[float] = None
+        self.progress_visible: bool = False
+        self.show_progress_card: bool = False
+        self.segments: list[GeneratedSegment] = []
+        self.line_count_text: str = "Đã tạo: 0 segment"
+        self.busy: bool = False
+        self.output_file: Optional[str] = None
+        self.open_folder_visible: bool = False
         self._controls: dict[str, ft.Control] = {}
         self._page: Optional[ft.Page] = None
-        self._ensure_voice_selected()
+        
+        self.presenter.init_presenter()
 
-    def _maybe_prefill_latest_srt(self) -> None:
-        if self._input_srt:
-            return
-        latest = find_latest_translated_srt(DEFAULT_TTS_OUTPUT_DIR)
-        if latest:
-            self._input_srt = str(latest)
-            self._current_file_text = latest.name
+    def refresh(self) -> None:
+        self._sync_controls()
+        self._request_ui_refresh()
 
-    def _load_voices(self):
-        try:
-            voices = self.service.list_voices(
-                provider=self._provider,
-                language=self._language,
-                api_key=self._api_key if self._provider == "gemini-tts" else None,
-            )
-        except Exception:
-            voices = []
-        return voices
+    def dispose(self) -> None:
+        """Dọn dẹp tài nguyên âm thanh khi đóng view."""
+        if self._page and hasattr(self, "_audio_player") and self._audio_player:
+            if self._audio_player in self._page.overlay:
+                self._page.overlay.remove(self._audio_player)
+            self._audio_player = None
+            self._request_ui_refresh()
 
-    def _ensure_voice_selected(self) -> None:
-        if self._voice_id and any(voice.id == self._voice_id for voice in self._voices):
-            return
-        self._voice_id = self._voices[0].id if self._voices else ""
-        self._voice_ids[self._provider] = self._voice_id
+    def notify(self, message: str, bgcolor: str = ft.Colors.BLUE_GREY_700) -> None:
+        if self._page:
+            self._page.snack_bar = ft.SnackBar(content=ft.Text(message), bgcolor=bgcolor, open=True)
+            self._request_ui_refresh()
+
+    def run_in_thread(self, target: Callable[[], None]) -> None:
+        if self._page:
+            self._page.run_thread(target)
 
     def _request_ui_refresh(self) -> None:
         if not self._page:
@@ -192,7 +176,11 @@ class TtsView(BaseFeatureView):
         if not self._page:
             return
         if not hasattr(self, "_audio_player") or self._audio_player is None:
-            self._audio_player = ft.Audio(src=path, autoplay=True)
+            try:
+                import flet_audio as fta
+                self._audio_player = fta.Audio(src=path, autoplay=True)
+            except ImportError:
+                self._audio_player = ft.Audio(src=path, autoplay=True)
             self._page.overlay.append(self._audio_player)
             self._page.update()
         else:
@@ -202,11 +190,11 @@ class TtsView(BaseFeatureView):
 
     def _build_result_rows(self) -> list[ft.Control]:
         rows: list[ft.Control] = []
-        for segment in self._segments:
+        for segment in self.segments:
             raw = "--" if segment.raw_duration_sec is None else f"{segment.raw_duration_sec:.2f}s"
             final = "--" if segment.final_duration_sec is None else f"{segment.final_duration_sec:.2f}s"
             
-            # Button to preview the segment
+            # Nút nghe thử phân đoạn
             play_btn = None
             if segment.file_path and os.path.exists(segment.file_path):
                 play_btn = ft.IconButton(
@@ -255,37 +243,37 @@ class TtsView(BaseFeatureView):
         if not controls:
             return
 
-        controls["input_srt_field"].value = self._input_srt
-        controls["output_dir_field"].value = self._output_dir
-        controls["provider_dropdown"].value = self._provider
-        controls["language_dropdown"].value = self._language
+        controls["input_srt_field"].value = self.input_srt
+        controls["output_dir_field"].value = self.output_dir
+        controls["provider_dropdown"].value = self.provider
+        controls["language_dropdown"].value = self.language
         controls["voice_dropdown"].options = [
             ft.dropdown.Option(key=voice.id, text=f"{voice.name} ({voice.locale} {voice.gender})")
-            for voice in self._voices
+            for voice in self.voices
         ]
-        controls["voice_dropdown"].value = self._voice_id
-        controls["api_key_field"].value = self._api_key
-        controls["api_key_field"].visible = self._provider == "gemini-tts"
-        controls["rate_slider"].value = self._rate
-        controls["rate_value"].value = f"{self._rate:+d}%"
-        controls["volume_slider"].value = self._volume
-        controls["volume_value"].value = f"{self._volume:+d}%"
-        controls["max_workers_slider"].value = self._max_workers
-        controls["max_workers_value"].value = f"{self._max_workers} luồng"
-        controls["keep_segments_checkbox"].value = self._keep_segments
-        controls["keep_segments_checkbox"].disabled = self._busy or not self._auto_merge
-        controls["auto_merge_checkbox"].value = self._auto_merge
-        controls["auto_merge_checkbox"].disabled = self._busy
-        controls["merge_button"].disabled = self._busy or not self._segments
-        controls["status_text"].value = self._status_text
-        controls["stage_text"].value = self._stage_text
-        controls["current_file_text"].value = self._current_file_text
-        controls["progress_bar"].visible = self._progress_visible
-        controls["progress_bar"].value = self._progress_value
-        controls["progress_card"].visible = self._show_progress_card
+        controls["voice_dropdown"].value = self.voice_id
+        controls["api_key_field"].value = self.api_key
+        controls["api_key_field"].visible = self.provider == "gemini-tts"
+        controls["rate_slider"].value = self.rate
+        controls["rate_value"].value = f"{self.rate:+d}%"
+        controls["volume_slider"].value = self.volume
+        controls["volume_value"].value = f"{self.volume:+d}%"
+        controls["max_workers_slider"].value = self.max_workers
+        controls["max_workers_value"].value = f"{self.max_workers} luồng"
+        controls["keep_segments_checkbox"].value = self.keep_segments
+        controls["keep_segments_checkbox"].disabled = self.busy or not self.auto_merge
+        controls["auto_merge_checkbox"].value = self.auto_merge
+        controls["auto_merge_checkbox"].disabled = self.busy
+        controls["merge_button"].disabled = self.busy or not self.segments
+        controls["status_text"].value = self.status_text
+        controls["stage_text"].value = self.stage_text
+        controls["current_file_text"].value = self.current_file_text
+        controls["progress_bar"].visible = self.progress_visible
+        controls["progress_bar"].value = self.progress_value
+        controls["progress_card"].visible = self.show_progress_card
         controls["result_list"].controls = self._build_result_rows()
-        controls["line_count_text"].value = self._line_count_text
-        controls["open_folder_button"].visible = self._open_folder_visible
+        controls["line_count_text"].value = self.line_count_text
+        controls["open_folder_button"].visible = self.open_folder_visible
 
         for key in (
             "choose_input_button",
@@ -303,17 +291,17 @@ class TtsView(BaseFeatureView):
             "start_button",
             "merge_button",
         ):
-            controls[key].disabled = self._busy
-        controls["start_button"].text = "Đang xử lý..." if self._busy else "Bắt đầu lồng tiếng"
-        controls["start_button"].icon = ft.Icons.HOURGLASS_TOP if self._busy else ft.Icons.RECORD_VOICE_OVER
+            controls[key].disabled = self.busy
+        controls["start_button"].text = "Đang xử lý..." if self.busy else "Bắt đầu lồng tiếng"
+        controls["start_button"].icon = ft.Icons.HOURGLASS_TOP if self.busy else ft.Icons.RECORD_VOICE_OVER
 
     def build(self, page: ft.Page) -> ft.Control:
         self._page = page
-        self._maybe_prefill_latest_srt()
+        self.presenter.maybe_prefill_latest_srt()
 
         input_srt_field = ft.TextField(
             label="File SRT Đầu Vào",
-            value=self._input_srt,
+            value=self.input_srt,
             hint_text="Chưa chọn file .srt đã dịch",
             read_only=True,
             border_radius=12,
@@ -322,7 +310,7 @@ class TtsView(BaseFeatureView):
         )
         output_dir_field = ft.TextField(
             label="Thư Mục Lưu",
-            value=self._output_dir,
+            value=self.output_dir,
             read_only=True,
             border_radius=12,
             expand=True,
@@ -330,7 +318,7 @@ class TtsView(BaseFeatureView):
         )
         provider_dropdown = ft.Dropdown(
             label="Nhà Cung Cấp",
-            value=self._provider,
+            value=self.provider,
             options=[ft.dropdown.Option(key=key, text=text) for key, text in PROVIDER_OPTIONS],
             bgcolor=SURFACE_BG,
             border_radius=12,
@@ -338,7 +326,7 @@ class TtsView(BaseFeatureView):
         )
         language_dropdown = ft.Dropdown(
             label="Ngôn Ngữ",
-            value=self._language,
+            value=self.language,
             options=[ft.dropdown.Option(key=key, text=value) for key, value in LANGUAGE_OPTIONS.items()],
             bgcolor=SURFACE_BG,
             border_radius=12,
@@ -346,7 +334,7 @@ class TtsView(BaseFeatureView):
         )
         voice_dropdown = ft.Dropdown(
             label="Giọng Đọc",
-            value=self._voice_id,
+            value=self.voice_id,
             options=[],
             bgcolor=SURFACE_BG,
             border_radius=12,
@@ -354,34 +342,34 @@ class TtsView(BaseFeatureView):
         )
         api_key_field = ft.TextField(
             label="Gemini API Key",
-            value=self._api_key,
+            value=self.api_key,
             password=True,
             can_reveal_password=True,
             border_radius=12,
             expand=True,
             bgcolor=SURFACE_BG,
-            visible=self._provider == "gemini-tts",
+            visible=self.provider == "gemini-tts",
         )
-        rate_value = ft.Text(f"{self._rate:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
-        volume_value = ft.Text(f"{self._volume:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
-        max_workers_value = ft.Text(f"{self._max_workers} luồng", color=ft.Colors.BLUE_GREY_100, width=58)
-        rate_slider = ft.Slider(min=-50, max=100, divisions=150, value=self._rate, label="{value}%", active_color=ACCENT)
-        volume_slider = ft.Slider(min=-50, max=100, divisions=150, value=self._volume, label="{value}%", active_color=ACCENT)
-        max_workers_slider = ft.Slider(min=1, max=10, divisions=9, value=self._max_workers, label="{value} luồng", active_color=ACCENT)
-        keep_segments_checkbox = ft.Checkbox(label="Giữ segment lẻ", value=self._keep_segments, active_color=ACCENT)
-        auto_merge_checkbox = ft.Checkbox(label="Tự động gộp âm thanh", value=self._auto_merge, active_color=ACCENT)
+        rate_value = ft.Text(f"{self.rate:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
+        volume_value = ft.Text(f"{self.volume:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
+        max_workers_value = ft.Text(f"{self.max_workers} luồng", color=ft.Colors.BLUE_GREY_100, width=58)
+        rate_slider = ft.Slider(min=-50, max=100, divisions=150, value=self.rate, label="{value}%", active_color=ACCENT)
+        volume_slider = ft.Slider(min=-50, max=100, divisions=150, value=self.volume, label="{value}%", active_color=ACCENT)
+        max_workers_slider = ft.Slider(min=1, max=10, divisions=9, value=self.max_workers, label="{value} luồng", active_color=ACCENT)
+        keep_segments_checkbox = ft.Checkbox(label="Giữ segment lẻ", value=self.keep_segments, active_color=ACCENT)
+        auto_merge_checkbox = ft.Checkbox(label="Tự động gộp âm thanh", value=self.auto_merge, active_color=ACCENT)
 
-        status_text = ft.Text(self._status_text, color=WARN, size=13, selectable=True)
-        current_file_text = ft.Text(self._current_file_text, color=ft.Colors.WHITE)
-        stage_text = ft.Text(self._stage_text, color=ft.Colors.BLUE_GREY_100)
+        status_text = ft.Text(self.status_text, color=WARN, size=13, selectable=True)
+        current_file_text = ft.Text(self.current_file_text, color=ft.Colors.WHITE)
+        stage_text = ft.Text(self.stage_text, color=ft.Colors.BLUE_GREY_100)
         progress_bar = ft.ProgressBar(
-            value=self._progress_value,
+            value=self.progress_value,
             color=ACCENT,
             bgcolor="#2E2E2E",
-            visible=self._progress_visible,
+            visible=self.progress_visible,
         )
         progress_card = ft.Container(
-            visible=self._show_progress_card,
+            visible=self.show_progress_card,
             bgcolor=CARD_BG,
             border_radius=14,
             padding=16,
@@ -397,7 +385,7 @@ class TtsView(BaseFeatureView):
             ),
         )
         result_list = ft.ListView(controls=self._build_result_rows(), spacing=8, height=320)
-        line_count_text = ft.Text(self._line_count_text, color=ft.Colors.BLUE_GREY_100)
+        line_count_text = ft.Text(self.line_count_text, color=ft.Colors.BLUE_GREY_100)
 
         choose_input_button = ft.OutlinedButton("Chọn SRT", icon=ft.Icons.SUBTITLES)
         choose_output_button = ft.OutlinedButton("Chọn thư mục", icon=ft.Icons.FOLDER)
@@ -417,7 +405,7 @@ class TtsView(BaseFeatureView):
         open_folder_button = ft.OutlinedButton(
             "Mở thư mục lưu",
             icon=ft.Icons.FOLDER_OPEN,
-            visible=self._open_folder_visible,
+            visible=self.open_folder_visible,
         )
 
         self._controls = {
@@ -450,231 +438,67 @@ class TtsView(BaseFeatureView):
             "open_folder_button": open_folder_button,
         }
 
-        def request_ui_refresh() -> None:
-            self._sync_controls()
-            self._request_ui_refresh()
-
-        def set_busy(busy: bool, refresh: bool = True) -> None:
-            self._busy = busy
-            if refresh:
-                request_ui_refresh()
-
-        def notify(message: str, bgcolor: str = ft.Colors.BLUE_GREY_700) -> None:
-            page.snack_bar = ft.SnackBar(content=ft.Text(message), bgcolor=bgcolor, open=True)
-            request_ui_refresh()
-
-        def update_line_count() -> None:
-            self._line_count_text = f"Đã tạo: {len(self._segments)} segment"
-
-        def reload_voices() -> None:
-            self._voices = self._load_voices()
-            self._voice_id = self._voice_ids.get(self._provider, "")
-            self._ensure_voice_selected()
-
-        def sync_input_values() -> None:
-            self._provider = provider_dropdown.value or self._provider
-            self._language = language_dropdown.value or self._language
-            self._voice_id = voice_dropdown.value or self._voice_id
-            self._voice_ids[self._provider] = self._voice_id
-            self._api_key = api_key_field.value or ""
-            self._api_keys["gemini-tts"] = self._api_key
-            self._rate = int(rate_slider.value or 0)
-            self._volume = int(volume_slider.value or 0)
-            self._max_workers = int(max_workers_slider.value or 5)
-            self._auto_merge = bool(auto_merge_checkbox.value)
-            if not self._auto_merge:
-                self._keep_segments = True
-            else:
-                self._keep_segments = bool(keep_segments_checkbox.value)
-
-        def ui_progress(progress: TtsProgress) -> None:
-            self._stage_text = progress.message
-            self._progress_value = None if progress.percent is None else max(0.0, min(1.0, progress.percent / 100))
-            request_ui_refresh()
-
-        def ui_segment_done(segments: list[GeneratedSegment]) -> None:
-            self._segments = segments
-            update_line_count()
-            request_ui_refresh()
-
-        def ui_success(result: TtsResult) -> None:
-            set_busy(False, refresh=False)
-            self._segments = result.segments
-            update_line_count()
-            self._stage_text = "Hoàn tất"
-            self._progress_value = 1
-            self._progress_visible = True
-            if result.output_file:
-                self._status_text = f"Đã lưu: {result.output_file}"
-                self._output_file = result.output_file
-                self._open_folder_visible = True
-            else:
-                self._status_text = "Tạo phân đoạn lồng tiếng hoàn tất. Hãy bấm 'Gộp âm thanh' để gộp file tổng."
-                self._output_file = None
-                self._open_folder_visible = False
-            request_ui_refresh()
-            notify("Lồng tiếng hoàn tất.", ft.Colors.GREEN_700)
-
-        def ui_error(result: TtsResult) -> None:
-            set_busy(False, refresh=False)
-            self._segments = result.segments
-            update_line_count()
-            self._status_text = result.error_message or "Lồng tiếng thất bại."
-            request_ui_refresh()
-
         def choose_input(_: ft.ControlEvent) -> None:
-            start_dir = str(Path(self._input_srt).parent) if self._input_srt else str(DEFAULT_TTS_OUTPUT_DIR)
+            start_dir = str(Path(self.input_srt).parent) if self.input_srt else str(DEFAULT_TTS_OUTPUT_DIR)
             picked = pick_srt_file_native(start_dir)
-            if not picked:
-                return
-            if Path(picked).suffix.lower() != ".srt":
-                self._status_text = "Vui lòng chọn file .srt."
-                request_ui_refresh()
-                return
-            self._input_srt = picked
-            self._current_file_text = Path(picked).name
-            self._status_text = ""
-            request_ui_refresh()
+            if picked:
+                self.presenter.handle_srt_selected(picked)
 
         def choose_output(_: ft.ControlEvent) -> None:
-            picked = pick_directory_native(self._output_dir or str(DEFAULT_TTS_OUTPUT_DIR))
-            if not picked:
-                return
-            self._output_dir = picked
-            self._status_text = ""
-            request_ui_refresh()
+            picked = pick_directory_native(self.output_dir or str(DEFAULT_TTS_OUTPUT_DIR))
+            if picked:
+                self.presenter.handle_output_dir_selected(picked)
 
         def reset_output(_: ft.ControlEvent) -> None:
-            self._output_dir = str(DEFAULT_TTS_OUTPUT_DIR)
-            self._status_text = ""
-            request_ui_refresh()
+            self.presenter.handle_reset_output_dir()
 
         def on_provider_change(event: ft.ControlEvent) -> None:
-            self._provider = event.control.value or DEFAULT_TTS_PROVIDER
-            reload_voices()
-            request_ui_refresh()
+            self.presenter.handle_provider_change(event.control.value or DEFAULT_TTS_PROVIDER)
 
         def on_language_change(event: ft.ControlEvent) -> None:
-            self._language = event.control.value or "vi"
-            reload_voices()
-            request_ui_refresh()
+            self.presenter.handle_language_change(event.control.value or "vi")
 
         def on_voice_change(event: ft.ControlEvent) -> None:
-            self._voice_id = event.control.value or self._voice_id
-            self._voice_ids[self._provider] = self._voice_id
-            request_ui_refresh()
+            self.presenter.handle_voice_change(event.control.value or "")
 
         def on_api_key_change(event: ft.ControlEvent) -> None:
-            self._api_key = event.control.value or ""
-            self._api_keys["gemini-tts"] = self._api_key
+            self.presenter.handle_api_key_change(event.control.value or "")
 
         def on_rate_change(event: ft.ControlEvent) -> None:
-            self._rate = int(event.control.value or 0)
-            request_ui_refresh()
+            self.presenter.handle_rate_change(int(event.control.value or 0))
 
         def on_volume_change(event: ft.ControlEvent) -> None:
-            self._volume = int(event.control.value or 0)
-            request_ui_refresh()
+            self.presenter.handle_volume_change(int(event.control.value or 0))
 
         def on_max_workers_change(event: ft.ControlEvent) -> None:
-            self._max_workers = int(event.control.value or 5)
-            request_ui_refresh()
+            self.presenter.handle_max_workers_change(int(event.control.value or 5))
 
         def on_keep_segments_change(event: ft.ControlEvent) -> None:
-            self._keep_segments = bool(event.control.value)
-            request_ui_refresh()
+            self.presenter.handle_keep_segments_change(bool(event.control.value))
 
         def on_auto_merge_change(event: ft.ControlEvent) -> None:
-            self._auto_merge = bool(event.control.value)
-            if not self._auto_merge:
-                self._keep_segments = True
-            request_ui_refresh()
+            self.presenter.handle_auto_merge_change(bool(event.control.value))
 
         def start_tts(_: ft.ControlEvent) -> None:
-            sync_input_values()
-            if self.service.is_processing:
-                self._status_text = "Đang có tác vụ lồng tiếng chạy, vui lòng đợi hoàn tất."
-                request_ui_refresh()
-                return
-            if not self._input_srt:
-                self._status_text = "Vui lòng chọn file .srt đã dịch."
-                request_ui_refresh()
-                return
-            if not self._voice_id:
-                self._status_text = "Vui lòng chọn giọng đọc."
-                request_ui_refresh()
-                return
-            if self._provider == "gemini-tts" and not self._api_key.strip():
-                self._status_text = "Vui lòng nhập Gemini API key."
-                request_ui_refresh()
-                return
+            self.provider = provider_dropdown.value or self.provider
+            self.language = language_dropdown.value or self.language
+            self.voice_id = voice_dropdown.value or self.voice_id
+            self.api_key = api_key_field.value or ""
+            self.rate = int(rate_slider.value or 0)
+            self.volume = int(volume_slider.value or 0)
+            self.max_workers = int(max_workers_slider.value or 5)
+            self.auto_merge = bool(auto_merge_checkbox.value)
+            self.keep_segments = bool(keep_segments_checkbox.value)
+            self.presenter.start_tts()
 
-            self._show_progress_card = True
-            self._progress_visible = True
-            self._progress_value = None
-            self._stage_text = "Đang khởi tạo..."
-            self._current_file_text = Path(self._input_srt).name
-            self._status_text = ""
-            self._segments = []
-            update_line_count()
-            self._output_file = None
-            self._open_folder_visible = False
-            set_busy(True)
-
-            callbacks = TtsCallbacks(on_progress=ui_progress, on_segment_done=ui_segment_done)
-            input_srt = self._input_srt
-            output_dir = self._output_dir
-            provider = self._provider
-            language = self._language
-            voice_id = self._voice_id
-            rate = self._rate
-            volume = self._volume
-            pitch = self._pitch
-            keep_segments = self._keep_segments
-            auto_merge = self._auto_merge
-            max_workers = self._max_workers
-            api_key = self._api_key
-
-            def worker() -> None:
-                try:
-                    result = self.service.run_job(
-                        input_srt=input_srt,
-                        output_dir=output_dir,
-                        provider=provider,
-                        language=language,
-                        voice_id=voice_id,
-                        rate=rate,
-                        volume=volume,
-                        pitch=pitch,
-                        keep_segments=keep_segments,
-                        auto_merge=auto_merge,
-                        max_workers=max_workers,
-                        api_key=api_key,
-                        callbacks=callbacks,
-                    )
-                    if result.ok:
-                        ui_success(result)
-                    else:
-                        ui_error(result)
-                except Exception as exc:
-                    ui_error(
-                        TtsResult(
-                            ok=False,
-                            output_file=None,
-                            segment_dir=None,
-                            segments=[],
-                            elapsed_sec=0,
-                            error_message=str(exc),
-                        )
-                    )
-
-            page.run_thread(worker)
+        def merge_audio_action(_: ft.ControlEvent) -> None:
+            self.presenter.merge_audio()
 
         def open_output_folder(_: ft.ControlEvent) -> None:
-            if self._output_file:
-                open_folder(str(Path(self._output_file).parent))
+            if self.output_file:
+                open_folder(str(Path(self.output_file).parent))
             else:
-                open_folder(self._output_dir)
+                open_folder(self.output_dir)
 
         choose_input_button.on_click = choose_input
         choose_output_button.on_click = choose_output
@@ -689,53 +513,9 @@ class TtsView(BaseFeatureView):
         keep_segments_checkbox.on_change = on_keep_segments_change
         auto_merge_checkbox.on_change = on_auto_merge_change
         start_button.on_click = start_tts
-        
-        def merge_audio_action(_: ft.ControlEvent) -> None:
-            if not self._input_srt:
-                self._status_text = "Vui lòng chọn file .srt đã dịch."
-                request_ui_refresh()
-                return
-            if not self._segments:
-                self._status_text = "Không có phân đoạn nào để gộp."
-                request_ui_refresh()
-                return
-
-            self._show_progress_card = True
-            self._progress_visible = True
-            self._progress_value = None
-            self._stage_text = "Đang gộp file audio tổng..."
-            self._status_text = ""
-            set_busy(True)
-
-            input_srt = self._input_srt
-            output_dir = self._output_dir
-            generated_segments = self._segments
-
-            def worker() -> None:
-                try:
-                    output_file = self.service.merge_segments(
-                        input_srt=input_srt,
-                        output_dir=output_dir,
-                        generated_segments=generated_segments,
-                    )
-                    set_busy(False, refresh=False)
-                    self._stage_text = "Gộp hoàn tất"
-                    self._progress_value = 1
-                    self._progress_visible = True
-                    self._status_text = f"Đã gộp thành công: {output_file}"
-                    self._output_file = output_file
-                    self._open_folder_visible = True
-                    request_ui_refresh()
-                    notify("Gộp file lồng tiếng hoàn tất.", ft.Colors.GREEN_700)
-                except Exception as exc:
-                    set_busy(False, refresh=False)
-                    self._status_text = f"Lỗi gộp file: {exc}"
-                    request_ui_refresh()
-
-            page.run_thread(worker)
-
         merge_button.on_click = merge_audio_action
         open_folder_button.on_click = open_output_folder
+
         self._sync_controls()
 
         return ft.Container(

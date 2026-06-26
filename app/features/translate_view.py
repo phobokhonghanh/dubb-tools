@@ -10,8 +10,8 @@ from typing import Optional
 import flet as ft
 
 from app.features.base import BaseFeatureView
-from app.services.translate_service import TranslateCallbacks, TranslateService
-from utils.translator import (
+from core.use_cases.translate_service import TranslateCallbacks, TranslateService
+from infrastructure.providers.translator import (
     DEFAULT_TRANSLATE_MODEL,
     DEFAULT_TRANSLATE_OUTPUT_DIR,
     LANGUAGE_OPTIONS,

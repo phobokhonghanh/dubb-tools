@@ -10,7 +10,7 @@ from typing import Optional
 import flet as ft
 
 from app.features.base import BaseFeatureView
-from app.services.stt_service import SttCallbacks, SttService
+from core.use_cases.stt_service import SttCallbacks, SttService
 from utils.stt_processor import (
     DEFAULT_STT_OUTPUT_DIR,
     SUPPORTED_AUDIO_EXTENSIONS,

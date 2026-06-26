@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import time
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 from typing import Callable, Optional
+
+from utils.process import run_process, ProcessManager
 
 
 DEFAULT_PROCESS_DIR = Path("resources/layer/process")
@@ -82,7 +85,7 @@ def probe_media(file_path: str | Path) -> MediaInfo:
         "-show_streams",
         str(path),
     ]
-    data = json.loads(subprocess.check_output(cmd).decode("utf-8"))
+    data = json.loads(run_process(cmd).stdout.decode("utf-8"))
     duration = float(data.get("format", {}).get("duration") or 0)
     width: Optional[int] = None
     height: Optional[int] = None
@@ -111,6 +114,11 @@ def probe_media(file_path: str | Path) -> MediaInfo:
     )
 
 
+def _check_stop(stop_event: Optional[Event]) -> None:
+    if stop_event and stop_event.is_set():
+        raise RuntimeError("Đã dừng tác vụ ghép video.")
+
+
 def merge_video_with_audio(
     *,
     main_video: str | Path,
@@ -123,6 +131,7 @@ def merge_video_with_audio(
     speech_volume: float = 1.0,
     background_volume: float = 1.25,
     on_progress: Optional[Callable[[MergeProgress], None]] = None,
+    stop_event: Optional[Event] = None,
 ) -> MergeResult:
     started_at = time.monotonic()
     output_path: Optional[Path] = None
@@ -137,6 +146,7 @@ def merge_video_with_audio(
         intro_path = _validate_video(intro_video, required=False, label="video mở đầu")
         outro_path = _validate_video(outro_video, required=False, label="video kết thúc")
 
+        _check_stop(stop_event)
         main_info = probe_media(main_path)
         if not main_info.width or not main_info.height:
             raise ValueError("Không đọc được resolution của main video.")
@@ -153,10 +163,12 @@ def merge_video_with_audio(
             shutil.rmtree(temp_dir, ignore_errors=True)
         temp_dir.mkdir(parents=True, exist_ok=True)
 
+        _check_stop(stop_event)
         _emit(on_progress, stage="timeline", message="Đang tính toán timeline...", percent=15)
         normalized_videos: list[Path] = []
         video_sources = [path for path in (intro_path, main_path, outro_path) if path]
         for index, source in enumerate(video_sources, start=1):
+            _check_stop(stop_event)
             _emit(
                 on_progress,
                 stage="normalize",
@@ -173,8 +185,11 @@ def merge_video_with_audio(
                 )
             )
 
+        _check_stop(stop_event)
         _emit(on_progress, stage="render", message="Đang render video final...", percent=60)
         video_track = _concat_videos(normalized_videos, temp_dir / "video_track.mp4")
+        
+        _check_stop(stop_event)
         audio_track = _build_audio_mix(
             speech_audio=speech_path,
             background_audio=background_path,
@@ -183,11 +198,12 @@ def merge_video_with_audio(
             speech_volume=speech_volume,
             background_volume=background_volume,
         )
+        
+        _check_stop(stop_event)
         _mux_video_audio(video_track, audio_track, output_path)
 
-        elapsed = time.monotonic() - started_at
-        shutil.rmtree(temp_dir, ignore_errors=True)
         _emit(on_progress, stage="done", message="Hoàn tất", percent=100)
+        elapsed = time.monotonic() - started_at
         return MergeResult(ok=True, output_file=str(output_path), elapsed_sec=elapsed, error_message=None)
     except Exception as exc:
         elapsed = time.monotonic() - started_at
@@ -197,6 +213,9 @@ def merge_video_with_audio(
             elapsed_sec=elapsed,
             error_message=str(exc),
         )
+    finally:
+        if temp_dir and temp_dir.exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def _latest_match(directory: Path, pattern: str) -> Optional[str]:
@@ -269,7 +288,7 @@ def _normalize_video(source: Path, output_path: Path, *, width: int, height: int
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,"
         f"fps={fps:.3f},setsar=1,format=yuv420p"
     )
-    subprocess.run(
+    run_process(
         [
             "ffmpeg",
             "-y",
@@ -302,7 +321,7 @@ def _concat_videos(inputs: list[Path], output_path: Path) -> Path:
         encoding="utf-8",
     )
     try:
-        subprocess.run(
+        run_process(
             [
                 "ffmpeg",
                 "-y",
@@ -360,12 +379,12 @@ def _build_audio_mix(
             str(output_path),
         ]
     )
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    run_process(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return output_path
 
 
 def _mux_video_audio(video_path: Path, audio_path: Path, output_path: Path) -> Path:
-    subprocess.run(
+    run_process(
         [
             "ffmpeg",
             "-y",

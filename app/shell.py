@@ -59,6 +59,12 @@ class AppShell:
         )
 
         def on_nav_change(index: int) -> None:
+            prev_active = self._get_active()
+            if hasattr(prev_active, "dispose"):
+                try:
+                    prev_active.dispose()
+                except Exception:
+                    pass
             self.active_id = self.features[index].feature_id
             render_content()
 

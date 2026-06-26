@@ -10,7 +10,7 @@ from typing import Optional
 import flet as ft
 
 from app.features.base import BaseFeatureView
-from app.services.merger_service import MergerCallbacks, MergerService
+from core.use_cases.merger_service import MergerCallbacks, MergerService
 from utils.video_merger import (
     DEFAULT_PROCESS_DIR,
     MergeProgress,
