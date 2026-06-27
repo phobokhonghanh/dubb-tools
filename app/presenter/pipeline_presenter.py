@@ -92,7 +92,25 @@ class PipelinePresenter:
         self.view.tts_pitch = int(config.get("tts_pitch") or tts_config.get("pitch") or 0)
         self.view.tts_keep_segments = bool(config.get("tts_keep_segments", tts_config.get("keep_segments", True)))
         tts_api_keys = tts_config.get("api_keys") if isinstance(tts_config.get("api_keys"), dict) else {}
-        self.view.tts_api_key = str(config.get("tts_api_key") or tts_api_keys.get("gemini-tts") or "")
+        self.view.tts_api_key = str(config.get("tts_api_key") or tts_api_keys.get(self.view.tts_provider) or "")
+        
+        # Parse CapCut config if provider is capcut
+        self.view.tts_capcut_cookie = ""
+        self.view.tts_capcut_workspace_id = ""
+        capcut_key = str(config.get("tts_api_key") or tts_api_keys.get("capcut") or "")
+        if capcut_key:
+            try:
+                import json
+                capcut_data = json.loads(capcut_key)
+                self.view.tts_capcut_cookie = capcut_data.get("cookie", "")
+                self.view.tts_capcut_workspace_id = capcut_data.get("workspace_id", "")
+            except Exception:
+                if ":" in capcut_key:
+                    parts = capcut_key.split(":", 1)
+                    self.view.tts_capcut_workspace_id = parts[0]
+                    self.view.tts_capcut_cookie = parts[1]
+                else:
+                    self.view.tts_capcut_cookie = capcut_key
         
         self.reload_tts_voices()
         self.ensure_tts_voice()
@@ -121,10 +139,19 @@ class PipelinePresenter:
 
     def reload_tts_voices(self) -> None:
         try:
+            api_key = None
+            if self.view.tts_provider == "gemini-tts":
+                api_key = self.view.tts_api_key
+            elif self.view.tts_provider == "capcut":
+                import json
+                api_key = json.dumps({
+                    "cookie": getattr(self.view, "tts_capcut_cookie", ""),
+                    "workspace_id": getattr(self.view, "tts_capcut_workspace_id", "")
+                })
             self.view.tts_voices = self.tts_service.list_voices(
                 provider=self.view.tts_provider,
                 language=self.view.tts_language,
-                api_key=self.view.tts_api_key if self.view.tts_provider == "gemini-tts" else None,
+                api_key=api_key,
             )
         except Exception:
             self.view.tts_voices = []
@@ -227,6 +254,20 @@ class PipelinePresenter:
 
         self.sync_configs_to_services()
         config = self.build_pipeline_config()
+        if "tts" in config.selected_steps:
+            if config.tts_provider == "gemini-tts" and not config.tts_api_key.strip():
+                self.view.status_text = "Vui lòng nhập Gemini TTS API key."
+                self.view.refresh()
+                return
+            if config.tts_provider == "capcut":
+                if not getattr(self.view, "tts_capcut_cookie", "").strip():
+                    self.view.status_text = "Vui lòng nhập CapCut Cookie."
+                    self.view.refresh()
+                    return
+                if not getattr(self.view, "tts_capcut_workspace_id", "").strip():
+                    self.view.status_text = "Vui lòng nhập CapCut Workspace ID."
+                    self.view.refresh()
+                    return
         self.view.busy = True
         self.view.job_dir = ""
         self.view.progress_value = 0.0
@@ -328,6 +369,20 @@ class PipelinePresenter:
 
         self.sync_configs_to_services()
         config = self.build_pipeline_config()
+        if "tts" in config.selected_steps:
+            if config.tts_provider == "gemini-tts" and not config.tts_api_key.strip():
+                self.view.status_text = "Vui lòng nhập Gemini TTS API key."
+                self.view.refresh()
+                return
+            if config.tts_provider == "capcut":
+                if not getattr(self.view, "tts_capcut_cookie", "").strip():
+                    self.view.status_text = "Vui lòng nhập CapCut Cookie."
+                    self.view.refresh()
+                    return
+                if not getattr(self.view, "tts_capcut_workspace_id", "").strip():
+                    self.view.status_text = "Vui lòng nhập CapCut Workspace ID."
+                    self.view.refresh()
+                    return
         if self.view.failed_step not in config.selected_steps:
             self.view.status_text = "Vui lòng giữ bước lỗi trong danh sách bước để chạy lại."
             self.view.refresh()
@@ -518,6 +573,8 @@ class PipelinePresenter:
             api_keys = dict(current_tts_config.get("api_keys") or {})
             if self.view.tts_provider == "gemini-tts" and self.view.tts_api_key:
                 api_keys["gemini-tts"] = self.view.tts_api_key
+            elif self.view.tts_provider == "capcut" and self.view.tts_api_key:
+                api_keys["capcut"] = self.view.tts_api_key
             tts_config["api_keys"] = api_keys
             
             voice_ids = dict(current_tts_config.get("voice_ids") or {})

@@ -23,7 +23,7 @@ CARD_BG = "#1E1E1E"
 SURFACE_BG = "#151515"
 ACCENT = "#00D4FF"
 WARN = "#FF8080"
-PROVIDER_OPTIONS = [("edge-tts", "Edge-TTS"), ("gemini-tts", "Gemini TTS")]
+PROVIDER_OPTIONS = [("edge-tts", "Edge-TTS"), ("gemini-tts", "Gemini TTS"), ("capcut", "CapCut TTS")]
 
 
 def open_folder(path: str) -> None:
@@ -113,6 +113,8 @@ class TtsView(BaseFeatureView):
     def __init__(self) -> None:
         self.presenter = TtsPresenter(self)
         self.input_srt: str = ""
+        self.input_mode: str = "file"
+        self.input_text: str = ""
         self.output_dir: str = str(DEFAULT_TTS_OUTPUT_DIR)
         self.provider: str = ""
         self.language: str = ""
@@ -126,6 +128,8 @@ class TtsView(BaseFeatureView):
         self.max_workers: int = 5
         self.api_keys: dict = {}
         self.api_key: str = ""
+        self.capcut_cookie: str = ""
+        self.capcut_workspace_id: str = ""
         self.voices: list = []
         self.status_text: str = ""
         self.stage_text: str = "--"
@@ -173,35 +177,59 @@ class TtsView(BaseFeatureView):
             self._page.update()
 
     def _play_audio(self, path: str) -> None:
-        if not self._page:
-            return
-        if not hasattr(self, "_audio_player") or self._audio_player is None:
+        if hasattr(self, "_audio_proc") and self._audio_proc is not None:
             try:
-                import flet_audio as fta
-                self._audio_player = fta.Audio(src=path, autoplay=True)
-            except ImportError:
-                self._audio_player = ft.Audio(src=path, autoplay=True)
-            self._page.overlay.append(self._audio_player)
-            self._page.update()
-        else:
-            self._audio_player.src = path
-            self._audio_player.update()
-            self._audio_player.play()
+                self._audio_proc.terminate()
+                self._audio_proc.wait(timeout=0.5)
+            except Exception:
+                pass
+            self._audio_proc = None
+
+        import subprocess
+        try:
+            self._audio_proc = subprocess.Popen(
+                ["ffplay", "-nodisp", "-autoexit", path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except Exception as e:
+            print(f"[Audio Playback Error] Không thể chạy ffplay: {e}")
 
     def _build_result_rows(self) -> list[ft.Control]:
         rows: list[ft.Control] = []
+        
+        # Đảm bảo các thuộc tính quản lý mở rộng/thu gọn và giá trị slider tồn tại trên self
+        if not hasattr(self, "expanded_segments"):
+            self.expanded_segments = set()
+        if not hasattr(self, "collapsed_segments"):
+            self.collapsed_segments = set()
+        if not hasattr(self, "slider_values"):
+            self.slider_values = {}
+
         for segment in self.segments:
             raw = "--" if segment.raw_duration_sec is None else f"{segment.raw_duration_sec:.2f}s"
             final = "--" if segment.final_duration_sec is None else f"{segment.final_duration_sec:.2f}s"
             
-            # Nút nghe thử phân đoạn
+            is_error = (segment.status == "error")
+            is_matched = not is_error and (segment.final_duration_sec <= segment.target_duration_sec or segment.target_duration_sec >= 999999.0)
+            is_warning = not is_error and not is_matched
+
+            # Khởi tạo giá trị slider mặc định cho phân đoạn nếu chưa có
+            if segment.index not in self.slider_values:
+                if is_warning and segment.target_duration_sec > 0:
+                    rec_val = segment.raw_duration_sec / segment.target_duration_sec
+                    self.slider_values[segment.index] = max(0.5, min(3.0, rec_val))
+                else:
+                    self.slider_values[segment.index] = 1.0
+
+            # Nút nghe thử phân đoạn gốc/hiện tại
             play_btn = None
             if segment.file_path and os.path.exists(segment.file_path):
                 play_btn = ft.IconButton(
                     icon=ft.Icons.PLAY_ARROW_ROUNDED,
                     icon_color=ACCENT,
                     icon_size=20,
-                    tooltip="Nghe thử phân đoạn này",
+                    tooltip="Nghe thử phân đoạn hiện tại",
                     on_click=lambda e, path=segment.file_path: self._play_audio(path),
                 )
             else:
@@ -212,26 +240,181 @@ class TtsView(BaseFeatureView):
                     disabled=True,
                 )
 
+            # Icon trạng thái
+            if is_error:
+                status_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, color=ft.Colors.RED_700, size=20, tooltip="Trạng thái: E (Lỗi)")
+            elif is_matched:
+                status_icon = ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=ft.Colors.GREEN_700, size=20, tooltip="Trạng thái: O (Khớp)")
+            else:
+                status_icon = ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=ft.Colors.AMBER_700, size=20, tooltip="Trạng thái: W (Lệch)")
+
+            # Nút điều chỉnh tốc độ (Tune) - Bấm để ẩn/hiện bộ chọn tốc độ
+            def make_tune_click(idx=segment.index):
+                def on_click(e):
+                    if idx in self.expanded_segments:
+                        self.expanded_segments.discard(idx)
+                        self.collapsed_segments.add(idx)
+                    else:
+                        self.expanded_segments.add(idx)
+                        self.collapsed_segments.discard(idx)
+                    self.refresh()
+                return on_click
+
+            tune_btn = ft.IconButton(
+                icon=ft.Icons.TUNE_ROUNDED,
+                icon_color=ft.Colors.BLUE_GREY_400 if not is_error else ft.Colors.BLUE_GREY_700,
+                icon_size=18,
+                disabled=is_error,
+                tooltip="Điều chỉnh tốc độ",
+                on_click=make_tune_click(),
+            )
+
+            # Nút làm lại (Restart)
+            def make_restart_click(idx=segment.index):
+                def on_click(e):
+                    self.presenter.regenerate_segment(idx)
+                return on_click
+
+            restart_btn = ft.IconButton(
+                icon=ft.Icons.REFRESH_ROUNDED,
+                icon_color=ft.Colors.BLUE_GREY_400,
+                icon_size=18,
+                tooltip="Làm lại phân đoạn",
+                on_click=make_restart_click(),
+            )
+
+            # Xác định ẩn/hiện bộ chỉnh tốc độ
+            panel_visible = False
+            if not is_error:
+                if is_warning and segment.index not in self.collapsed_segments:
+                    panel_visible = True
+                elif is_matched and segment.index in self.expanded_segments:
+                    panel_visible = True
+
+            # Xây dựng bộ slider điều chỉnh tốc độ
+            speed_val = self.slider_values[segment.index]
+            speed_text = ft.Text(f"{speed_val:.2f}x", width=50, weight=ft.FontWeight.BOLD, color=ACCENT)
+
+            def make_on_change(idx=segment.index, txt_ctrl=speed_text):
+                def on_change(e):
+                    self.slider_values[idx] = e.control.value
+                    txt_ctrl.value = f"{e.control.value:.2f}x"
+                    txt_ctrl.update()
+                return on_change
+
+            slider = ft.Slider(
+                min=0.5,
+                max=3.0,
+                divisions=25,
+                value=speed_val,
+                on_change=make_on_change(),
+                width=150,
+            )
+
+            # Event nghe thử tốc độ điều chỉnh
+            def make_preview_click(idx=segment.index):
+                def on_click(e):
+                    current_speed = self.slider_values[idx]
+                    path = self.presenter.preview_adjusted_speed(idx, current_speed)
+                    if path:
+                        self._play_audio(path)
+                    else:
+                        self.notify("Không thể tạo file nghe thử.", "#D32F2F")
+                return on_click
+
+            # Event áp dụng điều chỉnh tốc độ
+            def make_apply_click(idx=segment.index):
+                def on_click(e):
+                    current_speed = self.slider_values[idx]
+                    self.presenter.apply_adjusted_speed(idx, current_speed)
+                    self.expanded_segments.discard(idx)
+                    self.collapsed_segments.discard(idx)
+                    self.refresh()
+                return on_click
+
+            # Event hủy điều chỉnh tốc độ
+            def make_cancel_click(idx=segment.index):
+                def on_click(e):
+                    self.presenter.cancel_adjusted_speed(idx)
+                    self.collapsed_segments.add(idx)
+                    self.expanded_segments.discard(idx)
+                    self.refresh()
+                return on_click
+
+            panel_row = ft.Row(
+                spacing=10,
+                alignment=ft.MainAxisAlignment.START,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Text("Tốc độ:", size=13, color=ft.Colors.BLUE_GREY_300),
+                    slider,
+                    speed_text,
+                    ft.IconButton(
+                        icon=ft.Icons.VOLUME_UP_ROUNDED,
+                        icon_color=ACCENT,
+                        icon_size=18,
+                        tooltip="Nghe thử",
+                        on_click=make_preview_click(),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.CHECK_ROUNDED,
+                        icon_color=ft.Colors.GREEN_700,
+                        icon_size=18,
+                        tooltip="Áp dụng",
+                        on_click=make_apply_click(),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE_ROUNDED,
+                        icon_color=ft.Colors.RED_700,
+                        icon_size=18,
+                        tooltip="Hủy",
+                        on_click=make_cancel_click(),
+                    ),
+                ],
+            )
+
+            # Màu nền tương ứng trạng thái cho sinh động và premium
+            row_bgcolor = SURFACE_BG
+            if is_error:
+                row_bgcolor = "#3a1c1c"
+            elif is_warning:
+                row_bgcolor = "#2e291b"
+
             rows.append(
                 ft.Container(
-                    bgcolor=SURFACE_BG,
+                    bgcolor=row_bgcolor,
                     border_radius=8,
-                    padding=5,
-                    content=ft.Row(
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    padding=8,
+                    content=ft.Column(
+                        spacing=5,
                         controls=[
-                            play_btn,
-                            ft.Text(str(segment.index), width=34, color=ft.Colors.BLUE_GREY_200),
-                            ft.Text(
-                                f"[{segment.start_time} - {segment.end_time}]",
-                                width=200,
-                                color=ACCENT,
-                                selectable=True,
+                            ft.Row(
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    play_btn,
+                                    ft.Text(str(segment.index), width=30, color=ft.Colors.BLUE_GREY_200, weight=ft.FontWeight.BOLD),
+                                    ft.Text(
+                                        f"[{segment.start_time} - {segment.end_time}]",
+                                        width=150,
+                                        color=ACCENT,
+                                        selectable=True,
+                                    ),
+                                    ft.Text(f"M.tiêu: {segment.target_duration_sec:.2f}s" if segment.target_duration_sec < 999999.0 else "M.tiêu: --", width=95),
+                                    ft.Text(f"Gốc: {raw}", width=80),
+                                    ft.Text(f"Cuối: {final}", width=80),
+                                    status_icon,
+                                    tune_btn,
+                                    restart_btn,
+                                    ft.Text(segment.status, expand=True, color=ft.Colors.BLUE_GREY_400, size=12, selectable=True),
+                                ],
                             ),
-                            ft.Text(f"mục tiêu {segment.target_duration_sec:.2f}s", width=110),
-                            ft.Text(f"gốc {raw}", width=90),
-                            ft.Text(f"cuối {final}", width=95),
-                            ft.Text(segment.status, expand=True, selectable=True),
+                            ft.Row(
+                                controls=[
+                                    ft.Container(width=180), # Lệch đầu dòng để thẳng với các nút
+                                    panel_row
+                                ],
+                                visible=panel_visible
+                            )
                         ],
                     ),
                 )
@@ -243,7 +426,13 @@ class TtsView(BaseFeatureView):
         if not controls:
             return
 
+        controls["input_mode_dropdown"].value = self.input_mode
+        controls["input_text_field"].value = self.input_text
+        controls["input_text_row"].visible = (self.input_mode == "text")
+
         controls["input_srt_field"].value = self.input_srt
+        controls["input_srt_row"].visible = (self.input_mode == "file")
+
         controls["output_dir_field"].value = self.output_dir
         controls["provider_dropdown"].value = self.provider
         controls["language_dropdown"].value = self.language
@@ -254,6 +443,10 @@ class TtsView(BaseFeatureView):
         controls["voice_dropdown"].value = self.voice_id
         controls["api_key_field"].value = self.api_key
         controls["api_key_field"].visible = self.provider == "gemini-tts"
+        controls["capcut_cookie_field"].value = self.capcut_cookie
+        controls["capcut_cookie_field"].visible = self.provider == "capcut"
+        controls["capcut_workspace_id_field"].value = self.capcut_workspace_id
+        controls["capcut_workspace_id_field"].visible = self.provider == "capcut"
         controls["rate_slider"].value = self.rate
         controls["rate_value"].value = f"{self.rate:+d}%"
         controls["volume_slider"].value = self.volume
@@ -276,6 +469,8 @@ class TtsView(BaseFeatureView):
         controls["open_folder_button"].visible = self.open_folder_visible
 
         for key in (
+            "input_mode_dropdown",
+            "input_text_field",
             "choose_input_button",
             "choose_output_button",
             "reset_output_button",
@@ -283,6 +478,8 @@ class TtsView(BaseFeatureView):
             "language_dropdown",
             "voice_dropdown",
             "api_key_field",
+            "capcut_cookie_field",
+            "capcut_workspace_id_field",
             "rate_slider",
             "volume_slider",
             "max_workers_slider",
@@ -299,6 +496,28 @@ class TtsView(BaseFeatureView):
         self._page = page
         self.presenter.maybe_prefill_latest_srt()
 
+        input_mode_dropdown = ft.Dropdown(
+            label="Chế Độ Nhập",
+            value=self.input_mode,
+            options=[
+                ft.dropdown.Option(key="file", text="File phụ đề (SRT)"),
+                ft.dropdown.Option(key="text", text="Nhập văn bản trực tiếp"),
+            ],
+            bgcolor=SURFACE_BG,
+            border_radius=12,
+            width=220,
+        )
+        input_text_field = ft.TextField(
+            label="Văn Bản Cần Lồng Tiếng",
+            value=self.input_text,
+            hint_text="Nhập hoặc dán văn bản tại đây. Mỗi dòng sẽ là một phân đoạn lồng tiếng.",
+            multiline=True,
+            min_lines=5,
+            max_lines=15,
+            border_radius=12,
+            expand=True,
+            bgcolor=SURFACE_BG,
+        )
         input_srt_field = ft.TextField(
             label="File SRT Đầu Vào",
             value=self.input_srt,
@@ -350,6 +569,24 @@ class TtsView(BaseFeatureView):
             bgcolor=SURFACE_BG,
             visible=self.provider == "gemini-tts",
         )
+        capcut_cookie_field = ft.TextField(
+            label="CapCut Cookie",
+            value=self.capcut_cookie,
+            password=True,
+            can_reveal_password=True,
+            border_radius=12,
+            expand=True,
+            bgcolor=SURFACE_BG,
+            visible=self.provider == "capcut",
+        )
+        capcut_workspace_id_field = ft.TextField(
+            label="CapCut Workspace ID",
+            value=self.capcut_workspace_id,
+            border_radius=12,
+            expand=True,
+            bgcolor=SURFACE_BG,
+            visible=self.provider == "capcut",
+        )
         rate_value = ft.Text(f"{self.rate:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
         volume_value = ft.Text(f"{self.volume:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
         max_workers_value = ft.Text(f"{self.max_workers} luồng", color=ft.Colors.BLUE_GREY_100, width=58)
@@ -388,6 +625,9 @@ class TtsView(BaseFeatureView):
         line_count_text = ft.Text(self.line_count_text, color=ft.Colors.BLUE_GREY_100)
 
         choose_input_button = ft.OutlinedButton("Chọn SRT", icon=ft.Icons.SUBTITLES)
+        input_srt_row = ft.Row([input_srt_field, choose_input_button], spacing=12)
+        input_text_row = ft.Row([input_text_field], spacing=12)
+
         choose_output_button = ft.OutlinedButton("Chọn thư mục", icon=ft.Icons.FOLDER)
         reset_output_button = ft.OutlinedButton("Mặc định", icon=ft.Icons.RESTART_ALT)
         start_button = ft.ElevatedButton(
@@ -409,12 +649,18 @@ class TtsView(BaseFeatureView):
         )
 
         self._controls = {
+            "input_srt_row": input_srt_row,
+            "input_text_row": input_text_row,
+            "input_mode_dropdown": input_mode_dropdown,
+            "input_text_field": input_text_field,
             "input_srt_field": input_srt_field,
             "output_dir_field": output_dir_field,
             "provider_dropdown": provider_dropdown,
             "language_dropdown": language_dropdown,
             "voice_dropdown": voice_dropdown,
             "api_key_field": api_key_field,
+            "capcut_cookie_field": capcut_cookie_field,
+            "capcut_workspace_id_field": capcut_workspace_id_field,
             "rate_slider": rate_slider,
             "rate_value": rate_value,
             "volume_slider": volume_slider,
@@ -464,6 +710,28 @@ class TtsView(BaseFeatureView):
         def on_api_key_change(event: ft.ControlEvent) -> None:
             self.presenter.handle_api_key_change(event.control.value or "")
 
+        def on_capcut_cookie_change(event: ft.ControlEvent) -> None:
+            self.capcut_cookie = event.control.value or ""
+            import json
+            self.api_keys["capcut"] = json.dumps({
+                "cookie": self.capcut_cookie,
+                "workspace_id": self.capcut_workspace_id
+            })
+
+        def on_capcut_workspace_id_change(event: ft.ControlEvent) -> None:
+            self.capcut_workspace_id = event.control.value or ""
+            import json
+            self.api_keys["capcut"] = json.dumps({
+                "cookie": self.capcut_cookie,
+                "workspace_id": self.capcut_workspace_id
+            })
+
+        def on_input_mode_change(event: ft.ControlEvent) -> None:
+            self.presenter.handle_input_mode_change(event.control.value or "file")
+
+        def on_input_text_change(event: ft.ControlEvent) -> None:
+            self.presenter.handle_input_text_change(event.control.value or "")
+
         def on_rate_change(event: ft.ControlEvent) -> None:
             self.presenter.handle_rate_change(int(event.control.value or 0))
 
@@ -480,10 +748,19 @@ class TtsView(BaseFeatureView):
             self.presenter.handle_auto_merge_change(bool(event.control.value))
 
         def start_tts(_: ft.ControlEvent) -> None:
+            self.input_mode = input_mode_dropdown.value or self.input_mode
+            self.input_text = input_text_field.value or ""
             self.provider = provider_dropdown.value or self.provider
             self.language = language_dropdown.value or self.language
             self.voice_id = voice_dropdown.value or self.voice_id
-            self.api_key = api_key_field.value or ""
+            if self.provider == "capcut":
+                import json
+                self.api_key = json.dumps({
+                    "cookie": self.capcut_cookie,
+                    "workspace_id": self.capcut_workspace_id
+                })
+            else:
+                self.api_key = api_key_field.value or ""
             self.rate = int(rate_slider.value or 0)
             self.volume = int(volume_slider.value or 0)
             self.max_workers = int(max_workers_slider.value or 5)
@@ -500,6 +777,8 @@ class TtsView(BaseFeatureView):
             else:
                 open_folder(self.output_dir)
 
+        input_mode_dropdown.on_select = on_input_mode_change
+        input_text_field.on_change = on_input_text_change
         choose_input_button.on_click = choose_input
         choose_output_button.on_click = choose_output
         reset_output_button.on_click = reset_output
@@ -507,6 +786,8 @@ class TtsView(BaseFeatureView):
         language_dropdown.on_select = on_language_change
         voice_dropdown.on_select = on_voice_change
         api_key_field.on_change = on_api_key_change
+        capcut_cookie_field.on_change = on_capcut_cookie_change
+        capcut_workspace_id_field.on_change = on_capcut_workspace_id_change
         rate_slider.on_change = on_rate_change
         volume_slider.on_change = on_volume_change
         max_workers_slider.on_change = on_max_workers_change
@@ -539,7 +820,7 @@ class TtsView(BaseFeatureView):
                             spacing=12,
                             controls=[
                                 ft.Row([provider_dropdown, language_dropdown, voice_dropdown], spacing=12),
-                                ft.Row([api_key_field], spacing=12),
+                                ft.Row([api_key_field, capcut_cookie_field, capcut_workspace_id_field], spacing=12),
                                 ft.Row(
                                     [
                                         ft.Icon(ft.Icons.SPEED, color=ACCENT),
@@ -614,7 +895,9 @@ class TtsView(BaseFeatureView):
                         content=ft.Column(
                             spacing=12,
                             controls=[
-                                ft.Row([input_srt_field, choose_input_button], spacing=12),
+                                ft.Row([input_mode_dropdown], spacing=12),
+                                input_srt_row,
+                                input_text_row,
                                 ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12),
                                 ft.Row([start_button, merge_button, open_folder_button], spacing=12),
                             ],

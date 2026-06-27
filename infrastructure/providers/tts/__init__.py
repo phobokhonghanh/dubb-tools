@@ -2,6 +2,7 @@ from infrastructure.providers.tts.base import BaseTTS
 from infrastructure.providers.tts.composer import compose_timeline
 from infrastructure.providers.tts.edge_tts_provider import EdgeTTSProvider
 from infrastructure.providers.tts.gemini_tts_provider import GeminiTTSProvider
+from infrastructure.providers.tts.capcut_provider import CapCutTTSProvider
 from infrastructure.providers.tts.models import (
     DEFAULT_TTS_OUTPUT_DIR,
     DEFAULT_TTS_PROVIDER,
@@ -28,6 +29,7 @@ __all__ = [
     "BaseTTS",
     "EdgeTTSProvider",
     "GeminiTTSProvider",
+    "CapCutTTSProvider",
     "compose_timeline",
     "DEFAULT_TTS_OUTPUT_DIR",
     "DEFAULT_TTS_PROVIDER",

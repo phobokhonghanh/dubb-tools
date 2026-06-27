@@ -46,7 +46,7 @@ STT_LANGUAGES = {
     "es": "es",
     "th": "th",
 }
-TTS_PROVIDERS = [("edge-tts", "Edge-TTS"), ("gemini-tts", "Gemini TTS")]
+TTS_PROVIDERS = [("edge-tts", "Edge-TTS"), ("gemini-tts", "Gemini TTS"), ("capcut", "CapCut TTS")]
 VIDEO_FILTER = "File video (*.mp4 *.mov *.mkv *.avi *.webm)"
 AUDIO_FILTER = "File âm thanh (*.mp3 *.wav *.m4a *.aac *.flac *.ogg)"
 SRT_FILTER = "File SRT (*.srt)"
@@ -171,6 +171,8 @@ class PipelineView(BaseFeatureView):
         self.tts_pitch: int = 0
         self.tts_keep_segments: bool = True
         self.tts_api_key: str = ""
+        self.tts_capcut_cookie: str = ""
+        self.tts_capcut_workspace_id: str = ""
         self.tts_voices: list = []
 
         self.intro_video: str = ""
@@ -277,6 +279,10 @@ class PipelineView(BaseFeatureView):
         controls["tts_voice_dropdown"].value = self.tts_voice_id
         controls["tts_api_key_field"].value = self.tts_api_key
         controls["tts_api_key_field"].visible = self.tts_provider == "gemini-tts"
+        controls["tts_capcut_cookie_field"].value = self.tts_capcut_cookie
+        controls["tts_capcut_cookie_field"].visible = self.tts_provider == "capcut"
+        controls["tts_capcut_workspace_id_field"].value = self.tts_capcut_workspace_id
+        controls["tts_capcut_workspace_id_field"].visible = self.tts_provider == "capcut"
         controls["tts_rate_slider"].value = self.tts_rate
         controls["tts_rate_value"].value = f"{self.tts_rate:+d}%"
         controls["tts_volume_slider"].value = self.tts_volume
@@ -461,6 +467,24 @@ class PipelineView(BaseFeatureView):
             bgcolor=SURFACE_BG,
             visible=self.tts_provider == "gemini-tts",
         )
+        tts_capcut_cookie_field = ft.TextField(
+            label="CapCut Cookie",
+            value=self.tts_capcut_cookie,
+            password=True,
+            can_reveal_password=True,
+            border_radius=12,
+            expand=True,
+            bgcolor=SURFACE_BG,
+            visible=self.tts_provider == "capcut",
+        )
+        tts_capcut_workspace_id_field = ft.TextField(
+            label="CapCut Workspace ID",
+            value=self.tts_capcut_workspace_id,
+            border_radius=12,
+            expand=True,
+            bgcolor=SURFACE_BG,
+            visible=self.tts_provider == "capcut",
+        )
         tts_rate_value = ft.Text(f"{self.tts_rate:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
         tts_volume_value = ft.Text(f"{self.tts_volume:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
         tts_pitch_value = ft.Text(f"{self.tts_pitch:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
@@ -591,7 +615,7 @@ class PipelineView(BaseFeatureView):
             tts_badge,
             [
                 ft.Row([tts_provider_dropdown, tts_language_dropdown, tts_voice_dropdown], spacing=12),
-                ft.Row([tts_api_key_field], spacing=12),
+                ft.Row([tts_api_key_field, tts_capcut_cookie_field, tts_capcut_workspace_id_field], spacing=12),
                 ft.Row([ft.Text("Tốc độ đọc", width=120), tts_rate_value, tts_rate_slider], spacing=12),
                 ft.Text("Tăng/giảm tốc độ đọc. Nếu audio dài hơn subtitle, hệ thống vẫn tự tăng tốc thêm để khớp thời gian.", size=12, color=ft.Colors.BLUE_GREY_200),
                 ft.Row([ft.Text("Âm lượng", width=120), tts_volume_value, tts_volume_slider], spacing=12),
@@ -663,6 +687,8 @@ class PipelineView(BaseFeatureView):
             "tts_language_dropdown": tts_language_dropdown,
             "tts_voice_dropdown": tts_voice_dropdown,
             "tts_api_key_field": tts_api_key_field,
+            "tts_capcut_cookie_field": tts_capcut_cookie_field,
+            "tts_capcut_workspace_id_field": tts_capcut_workspace_id_field,
             "tts_rate_slider": tts_rate_slider,
             "tts_rate_value": tts_rate_value,
             "tts_volume_slider": tts_volume_slider,
@@ -740,7 +766,16 @@ class PipelineView(BaseFeatureView):
             self.tts_provider = tts_provider_dropdown.value or DEFAULT_TTS_PROVIDER
             self.tts_language = tts_language_dropdown.value or "vi"
             self.tts_voice_id = tts_voice_dropdown.value or self.tts_voice_id
-            self.tts_api_key = tts_api_key_field.value or ""
+            self.tts_capcut_cookie = tts_capcut_cookie_field.value or ""
+            self.tts_capcut_workspace_id = tts_capcut_workspace_id_field.value or ""
+            if self.tts_provider == "capcut":
+                import json
+                self.tts_api_key = json.dumps({
+                    "cookie": self.tts_capcut_cookie,
+                    "workspace_id": self.tts_capcut_workspace_id
+                })
+            else:
+                self.tts_api_key = tts_api_key_field.value or ""
             self.tts_rate = int(tts_rate_slider.value or 0)
             self.tts_volume = int(tts_volume_slider.value or 0)
             self.tts_pitch = int(tts_pitch_slider.value or 0)
@@ -820,6 +855,8 @@ class PipelineView(BaseFeatureView):
         tts_volume_slider.on_change = on_slider_change
         tts_pitch_slider.on_change = on_slider_change
         tts_keep_segments_checkbox.on_change = on_slider_change
+        tts_capcut_cookie_field.on_change = on_slider_change
+        tts_capcut_workspace_id_field.on_change = on_slider_change
         merge_output_name_field.on_change = on_slider_change
         merge_speech_slider.on_change = on_slider_change
         merge_background_slider.on_change = on_slider_change

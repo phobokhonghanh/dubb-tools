@@ -16,5 +16,9 @@ class TTSProviderFactory:
         elif provider_id == "gemini-tts":
             from infrastructure.providers.tts.gemini_tts_provider import GeminiTTSProvider
             return GeminiTTSProvider(api_key=api_key)
+        elif provider_id == "capcut":
+            from infrastructure.providers.tts.capcut_provider import CapCutTTSProvider
+            return CapCutTTSProvider(api_key=api_key)
         else:
             raise ValueError(f"Nhà cung cấp TTS không được hỗ trợ: {provider_id}")
+

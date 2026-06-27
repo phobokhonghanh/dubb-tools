@@ -17,6 +17,7 @@ from infrastructure.providers.tts import (
     GeneratedSegment,
     TtsProgress,
     TtsResult,
+    TtsSegment,
     TtsVoice,
     adjust_speed,
     apply_volume,
@@ -126,6 +127,8 @@ class TtsService:
         self,
         *,
         input_srt: str,
+        input_text: Optional[str] = None,
+        input_mode: str = "file",
         output_dir: str,
         provider: str,
         language: str,
@@ -153,12 +156,21 @@ class TtsService:
 
         try:
             require_ffmpeg()
-            source = Path(input_srt).expanduser()
             out_dir = Path(output_dir or DEFAULT_TTS_OUTPUT_DIR).expanduser()
             out_dir.mkdir(parents=True, exist_ok=True)
-            segment_dir = out_dir / f"{source.stem}_segments"
+
+            if input_mode == "text":
+                import hashlib
+                text_bytes = (input_text or "").encode("utf-8")
+                text_hash = hashlib.md5(text_bytes).hexdigest()[:8]
+                source_stem = f"text_{text_hash}"
+            else:
+                source = Path(input_srt).expanduser()
+                source_stem = source.stem
+
+            segment_dir = out_dir / f"{source_stem}_segments"
             segment_dir.mkdir(parents=True, exist_ok=True)
-            output_file = out_dir / f"{source.stem}_speech.mp3"
+            output_file = out_dir / f"{source_stem}_speech.mp3"
 
             config = self.load_config()
             voice_ids = dict(config.get("voice_ids") or {})
@@ -178,11 +190,31 @@ class TtsService:
                     "auto_merge": auto_merge,
                     "max_workers": max_workers,
                     "api_keys": api_keys,
+                    "input_mode": input_mode,
+                    "input_text": input_text or "",
                 }
             )
 
             self._emit(callbacks.on_progress, stage="init", message="Đang khởi tạo...", percent=0)
-            segments = parse_tts_segments(source)
+            
+            if input_mode == "text":
+                segments = []
+                lines = [line.strip() for line in (input_text or "").split("\n") if line.strip()]
+                for idx, line in enumerate(lines, start=1):
+                    segments.append(
+                        TtsSegment(
+                            index=idx,
+                            start_time="00:00:00,000",
+                            end_time="00:00:00,000",
+                            text=line,
+                            start_sec=0.0,
+                            end_sec=0.0,
+                            target_duration_sec=999999.0,
+                        )
+                    )
+            else:
+                segments = parse_tts_segments(source)
+
             tts = self._build_provider(provider, api_key)
             total = len(segments)
 
@@ -203,43 +235,44 @@ class TtsService:
                         volume=volume if provider == "edge-tts" else 0,
                         pitch=pitch,
                     )
-                except Exception as exc:
-                    preview = " ".join(segment.text.split())[:120]
-                    raise RuntimeError(
-                        f"Lỗi tạo audio ở segment {segment.index}: {exc}. Nội dung: {preview}"
-                    ) from exc
-                raw_duration = get_duration(synthesized)
-                working_path = synthesized
+                    raw_duration = get_duration(synthesized)
+                    working_path = synthesized
 
-                if provider == "gemini-tts":
-                    working_path = self._apply_gemini_postprocess(
-                        input_path=working_path,
-                        segment_dir=segment_dir,
-                        index=segment.index,
-                        rate=rate,
-                        volume=volume,
-                    )
+                    if provider == "gemini-tts":
+                        working_path = self._apply_gemini_postprocess(
+                            input_path=working_path,
+                            segment_dir=segment_dir,
+                            index=segment.index,
+                            rate=rate,
+                            volume=volume,
+                        )
 
-                final_path = working_path
-                final_duration = get_duration(final_path)
-                if final_duration > segment.target_duration_sec:
-                    final_path = adjust_speed(
-                        final_path,
-                        segment_dir / f"{segment.index:04d}_timed.mp3",
-                        segment.target_duration_sec,
-                    )
+                    final_path = working_path
                     final_duration = get_duration(final_path)
 
-                gen_seg = GeneratedSegment(
-                    index=segment.index,
-                    start_time=segment.start_time,
-                    end_time=segment.end_time,
-                    target_duration_sec=segment.target_duration_sec,
-                    raw_duration_sec=raw_duration,
-                    final_duration_sec=final_duration,
-                    file_path=str(final_path),
-                    status="done",
-                )
+                    gen_seg = GeneratedSegment(
+                        index=segment.index,
+                        start_time=segment.start_time,
+                        end_time=segment.end_time,
+                        target_duration_sec=segment.target_duration_sec,
+                        raw_duration_sec=raw_duration,
+                        final_duration_sec=final_duration,
+                        file_path=str(final_path),
+                        status="done",
+                    )
+                except Exception as exc:
+                    preview = " ".join(segment.text.split())[:120]
+                    print(f"[TTS Error] Lỗi tạo audio ở segment {segment.index}: {exc}. Nội dung: {preview}")
+                    gen_seg = GeneratedSegment(
+                        index=segment.index,
+                        start_time=segment.start_time,
+                        end_time=segment.end_time,
+                        target_duration_sec=segment.target_duration_sec,
+                        raw_duration_sec=None,
+                        final_duration_sec=None,
+                        file_path=None,
+                        status="error",
+                    )
 
                 nonlocal completed_count
                 with progress_lock:
@@ -260,6 +293,13 @@ class TtsService:
             futures = []
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 for position, segment in enumerate(segments, start=1):
+                    if position > 1:
+                        import random
+                        delay = random.uniform(3.0, 7.0)
+                        if self._stop_event.wait(delay):
+                            break
+                    if self._stop_event.is_set():
+                        break
                     futures.append(executor.submit(process_segment, (position, segment)))
 
                 for future in as_completed(futures):
@@ -269,25 +309,44 @@ class TtsService:
                         raise RuntimeError("Đã dừng tác vụ lồng tiếng.")
                     future.result()
 
-            if auto_merge:
+            has_errors = any(s.status == "error" for s in generated)
+            if auto_merge and not has_errors:
                 self._emit(callbacks.on_progress, stage="compose", message="Đang gộp file audio...", percent=95)
-                compose_timeline(
-                    segments=segments,
-                    generated=generated,
-                    output_path=output_file,
-                    work_dir=segment_dir,
-                )
+                if input_mode == "text":
+                    from infrastructure.providers.tts.composer import create_silence, concat_audio
+                    parts = []
+                    for idx, gen_seg in enumerate(generated):
+                        if gen_seg.file_path:
+                            parts.append(Path(gen_seg.file_path))
+                            if idx < len(generated) - 1:
+                                silence_path = segment_dir / f"silence_{gen_seg.index}.mp3"
+                                create_silence(silence_path, 0.5)
+                                parts.append(silence_path)
+                    if parts:
+                        concat_audio(parts, output_file)
+                    else:
+                        raise RuntimeError("Không có audio segment để gộp.")
+                else:
+                    compose_timeline(
+                        segments=segments,
+                        generated=generated,
+                        output_path=output_file,
+                        work_dir=segment_dir,
+                    )
                 if not keep_segments and segment_dir.exists():
                     shutil.rmtree(segment_dir, ignore_errors=True)
                 out_path_str = str(output_file)
             else:
-                self._emit(callbacks.on_progress, stage="synthesize", message="Đã lưu các segment (bỏ qua gộp âm thanh).", percent=95)
+                if has_errors:
+                    self._emit(callbacks.on_progress, stage="synthesize", message="Có phân đoạn bị lỗi. Vui lòng làm lại (Restart) phân đoạn lỗi.", percent=95)
+                else:
+                    self._emit(callbacks.on_progress, stage="synthesize", message="Đã lưu các segment (bỏ qua gộp âm thanh).", percent=95)
                 out_path_str = None
 
             result = TtsResult(
                 ok=True,
                 output_file=out_path_str,
-                segment_dir=str(segment_dir) if (keep_segments or not auto_merge) else None,
+                segment_dir=str(segment_dir) if (keep_segments or not auto_merge or has_errors) else None,
                 segments=generated,
                 elapsed_sec=time.monotonic() - started_at,
                 error_message=None,
@@ -311,6 +370,62 @@ class TtsService:
         finally:
             with self._lock:
                 self._active = False
+
+    def synthesize_single_segment(
+        self,
+        *,
+        index: int,
+        text: str,
+        start_time: str,
+        end_time: str,
+        target_duration_sec: float,
+        segment_dir: Path | str,
+        provider: str,
+        voice_id: str,
+        rate: int,
+        volume: int,
+        pitch: int,
+        api_key: str | None = None,
+    ) -> GeneratedSegment:
+        require_ffmpeg()
+        segment_dir = Path(segment_dir).expanduser()
+        segment_dir.mkdir(parents=True, exist_ok=True)
+        raw_path = segment_dir / f"{index:04d}_raw.mp3"
+
+        tts = self._build_provider(provider, api_key)
+        synthesized = tts.synthesize_segment(
+            text=text,
+            voice_id=voice_id,
+            output_path=raw_path,
+            rate=rate if provider == "edge-tts" else 0,
+            volume=volume if provider == "edge-tts" else 0,
+            pitch=pitch,
+        )
+        raw_duration = get_duration(synthesized)
+        working_path = synthesized
+
+        if provider == "gemini-tts":
+            working_path = self._apply_gemini_postprocess(
+                input_path=working_path,
+                segment_dir=segment_dir,
+                index=index,
+                rate=rate,
+                volume=volume,
+            )
+
+        final_path = working_path
+        final_duration = get_duration(final_path)
+
+        return GeneratedSegment(
+            index=index,
+            start_time=start_time,
+            end_time=end_time,
+            target_duration_sec=target_duration_sec,
+            raw_duration_sec=raw_duration,
+            final_duration_sec=final_duration,
+            file_path=str(final_path),
+            status="done",
+        )
 
     def _build_provider(self, provider: str, api_key: str | None):
         return TTSProviderFactory.get_provider(provider, api_key=api_key)
