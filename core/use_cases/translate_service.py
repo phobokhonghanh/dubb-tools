@@ -169,7 +169,7 @@ class TranslateService:
 
             total_chunks = len(chunks)
             total_input_chars_all = sum(sum(1 for c in segment.text if c.isalnum()) for segment in source_segments)
-            print(f"[TRANSLATE] Bắt đầu dịch. Tổng số ký tự input của file (chỉ tính từ ngữ): {total_input_chars_all}")
+            # print(f"[TRANSLATE] Bắt đầu dịch. Tổng số ký tự input của file (chỉ tính từ ngữ): {total_input_chars_all}")
 
             text_models = [
                 "gemini-3.5-flash",
@@ -191,7 +191,7 @@ class TranslateService:
                 
                 # Count input characters (only alphanumeric)
                 input_chars = sum(sum(1 for c in segment.text if c.isalnum()) for segment in chunk)
-                print(f"[TRANSLATE] Cụm {chunk_index}/{total_chunks} - Trước khi gửi: {input_chars} ký tự input (chỉ tính từ ngữ)")
+                # print(f"[TRANSLATE] Cụm {chunk_index}/{total_chunks} - Trước khi gửi: {input_chars} ký tự input (chỉ tính từ ngữ)")
                 
                 max_retries = 5
                 retry_delay = 5.0
@@ -243,7 +243,7 @@ class TranslateService:
                 if not success:
                     # Try falling back starting from index 0 in case the working model failed but we skipped earlier models
                     if current_model_index > 0:
-                        print(f"[TRANSLATE] Thử lại các model fallback từ đầu danh sách...")
+                        # print(f"[TRANSLATE] Thử lại các model fallback từ đầu danh sách...")
                         for idx in range(0, current_model_index):
                             active_model = fallback_models[idx]
                             translator.model = active_model
@@ -288,7 +288,7 @@ class TranslateService:
                 
                 # Count output characters (only alphanumeric)
                 output_chars = sum(sum(1 for c in text if c.isalnum()) for text in translated_texts)
-                print(f"[TRANSLATE] Cụm {chunk_index}/{total_chunks} - Sau khi xong: {output_chars} ký tự output (chỉ tính từ ngữ)")
+                # print(f"[TRANSLATE] Cụm {chunk_index}/{total_chunks} - Sau khi xong: {output_chars} ký tự output (chỉ tính từ ngữ)")
                 
                 translated_chunk = [
                     SrtSegment(
@@ -310,7 +310,7 @@ class TranslateService:
                 )
 
             total_output_chars_all = sum(sum(1 for c in segment.text if c.isalnum()) for segment in translated_segments)
-            print(f"[TRANSLATE] Dịch hoàn tất. Tổng số ký tự output của file (chỉ tính từ ngữ): {total_output_chars_all}")
+            # print(f"[TRANSLATE] Dịch hoàn tất. Tổng số ký tự output của file (chỉ tính từ ngữ): {total_output_chars_all}")
 
             output_path.write_text(serialize_srt(translated_segments), encoding="utf-8")
 

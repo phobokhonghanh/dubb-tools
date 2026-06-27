@@ -36,73 +36,180 @@ def open_folder(path: str) -> None:
 
 
 def pick_directory_native(initial_dir: str) -> Optional[str]:
+    # 1. Try Zenity
     if shutil.which("zenity"):
-        # Gọi trực tiếp qua subprocess.run thay vì run_process để tránh đăng ký vào ProcessManager.
-        # Điều này ngăn việc tiến trình hộp thoại GUI tương tác bị tắt nhầm khi bấm "Hủy tất cả".
-        result = subprocess.run(
-            [
-                "zenity",
-                "--file-selection",
-                "--directory",
-                "--title=Chọn thư mục lưu audio",
-                f"--filename={initial_dir.rstrip('/')}/",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            return None
-        picked = result.stdout.strip()
-        return picked or None
+        try:
+            result = subprocess.run(
+                [
+                    "zenity",
+                    "--file-selection",
+                    "--directory",
+                    "--title=Chọn thư mục lưu audio",
+                    f"--filename={initial_dir.rstrip('/')}/",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                picked = result.stdout.strip()
+                return picked or None
+            elif result.returncode == 1:
+                # User clicked Cancel
+                return None
+        except Exception:
+            pass
 
+    # 2. Try PySide6
     try:
         from PySide6.QtWidgets import QApplication, QFileDialog
+        app = QApplication.instance()
+        owns_app = app is None
+        if owns_app:
+            app = QApplication([])
+        picked = QFileDialog.getExistingDirectory(None, "Chọn thư mục lưu audio", initial_dir)
+        if owns_app and app:
+            app.quit()
+        return picked or None
     except Exception:
-        return None
+        pass
 
-    app = QApplication.instance()
-    owns_app = app is None
-    if owns_app:
-        app = QApplication([])
-    picked = QFileDialog.getExistingDirectory(None, "Chọn thư mục lưu audio", initial_dir)
-    if owns_app and app:
-        app.quit()
-    return picked or None
+    # 3. Try Tkinter
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        picked = filedialog.askdirectory(initialdir=initial_dir, title="Chọn thư mục lưu audio")
+        root.destroy()
+        return picked or None
+    except Exception:
+        pass
+
+    return None
 
 
 def pick_srt_file_native(initial_dir: str) -> Optional[str]:
+    # 1. Try Zenity
     if shutil.which("zenity"):
-        # Gọi trực tiếp qua subprocess.run thay vì run_process để tránh đăng ký vào ProcessManager.
-        # Điều này ngăn việc tiến trình hộp thoại GUI tương tác bị tắt nhầm khi bấm "Hủy tất cả".
-        result = subprocess.run(
-            [
-                "zenity",
-                "--file-selection",
-                "--title=Chọn file SRT đã dịch",
-                f"--filename={initial_dir.rstrip('/')}/",
-                "--file-filter=SRT files | *.srt",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            return None
-        picked = result.stdout.strip()
-        return picked or None
+        try:
+            result = subprocess.run(
+                [
+                    "zenity",
+                    "--file-selection",
+                    "--title=Chọn file SRT đã dịch",
+                    f"--filename={initial_dir.rstrip('/')}/",
+                    "--file-filter=SRT files | *.srt",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                picked = result.stdout.strip()
+                return picked or None
+            elif result.returncode == 1:
+                # User clicked Cancel
+                return None
+        except Exception:
+            pass
 
+    # 2. Try PySide6
     try:
         from PySide6.QtWidgets import QApplication, QFileDialog
+        app = QApplication.instance()
+        owns_app = app is None
+        if owns_app:
+            app = QApplication([])
+        picked, _ = QFileDialog.getOpenFileName(None, "Chọn file SRT đã dịch", initial_dir, "File SRT (*.srt)")
+        if owns_app and app:
+            app.quit()
+        return picked or None
     except Exception:
-        return None
+        pass
 
-    app = QApplication.instance()
-    owns_app = app is None
-    if owns_app:
-        app = QApplication([])
-    picked, _ = QFileDialog.getOpenFileName(None, "Chọn file SRT đã dịch", initial_dir, "File SRT (*.srt)")
-    if owns_app and app:
-        app.quit()
-    return picked or None
+    # 3. Try Tkinter
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        picked = filedialog.askopenfilename(
+            initialdir=initial_dir,
+            title="Chọn file SRT đã dịch",
+            filetypes=[("SRT files", "*.srt"), ("All files", "*.*")]
+        )
+        root.destroy()
+        return picked or None
+    except Exception:
+        pass
+
+    return None
+
+
+def pick_audio_file_native(initial_dir: str) -> Optional[str]:
+    # 1. Try Zenity
+    if shutil.which("zenity"):
+        try:
+            result = subprocess.run(
+                [
+                    "zenity",
+                    "--file-selection",
+                    "--title=Chọn file âm thanh cần import",
+                    f"--filename={initial_dir.rstrip('/')}/",
+                    "--file-filter=Audio files | *.mp3 *.wav *.m4a *.aac *.flac *.MP3 *.WAV *.M4A *.AAC *.FLAC",
+                    "--file-filter=All files | *",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                picked = result.stdout.strip()
+                return picked or None
+            elif result.returncode == 1:
+                # User clicked Cancel
+                return None
+        except Exception:
+            pass
+
+    # 2. Try PySide6
+    try:
+        from PySide6.QtWidgets import QApplication, QFileDialog
+        app = QApplication.instance()
+        owns_app = app is None
+        if owns_app:
+            app = QApplication([])
+        picked, _ = QFileDialog.getOpenFileName(
+            None,
+            "Chọn file âm thanh cần import",
+            initial_dir,
+            "Audio Files (*.mp3 *.wav *.m4a *.aac *.flac *.MP3 *.WAV *.M4A *.AAC *.FLAC);;All Files (*)"
+        )
+        if owns_app and app:
+            app.quit()
+        return picked or None
+    except Exception:
+        pass
+
+    # 3. Try Tkinter
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        picked = filedialog.askopenfilename(
+            initialdir=initial_dir,
+            title="Chọn file âm thanh cần import",
+            filetypes=[
+                ("Audio files", "*.mp3 *.wav *.m4a *.aac *.flac *.MP3 *.WAV *.M4A *.AAC *.FLAC"),
+                ("All files", "*.*")
+            ]
+        )
+        root.destroy()
+        return picked or None
+    except Exception:
+        pass
+
+    return None
+
 
 
 class TtsView(BaseFeatureView):
@@ -128,9 +235,13 @@ class TtsView(BaseFeatureView):
         self.max_workers: int = 5
         self.api_keys: dict = {}
         self.api_key: str = ""
+        self.capcut_version: str = "v2"
         self.capcut_cookie: str = ""
         self.capcut_workspace_id: str = ""
+        self.capcut_device_id: str = ""
+        self.proxy: str = ""
         self.voices: list = []
+        self.show_advanced: bool = False
         self.status_text: str = ""
         self.stage_text: str = "--"
         self.current_file_text: str = "--"
@@ -283,6 +394,52 @@ class TtsView(BaseFeatureView):
                 on_click=make_restart_click(),
             )
 
+            # Nút tải xuống thủ công và sao chép URL khi gặp lỗi tải nhưng đã có audio_url
+            def make_download_click(idx=segment.index, url=segment.audio_url):
+                def on_click(e):
+                    self.presenter.download_audio_url_manually(idx, url)
+                return on_click
+
+            def make_copy_click(url=segment.audio_url):
+                def on_click(e):
+                    self._page.set_clipboard(url)
+                    self.notify("Đã sao chép URL tải audio vào clipboard!", ft.Colors.GREEN_700)
+                return on_click
+
+            download_btn = ft.IconButton(
+                icon=ft.Icons.DOWNLOAD_ROUNDED,
+                icon_color=ACCENT,
+                icon_size=18,
+                tooltip="Tải xuống thủ công từ CDN",
+                visible=bool(is_error and segment.audio_url),
+                on_click=make_download_click(),
+            )
+
+            copy_btn = ft.IconButton(
+                icon=ft.Icons.COPY_ALL_ROUNDED,
+                icon_color=ACCENT,
+                icon_size=18,
+                tooltip="Sao chép URL file âm thanh",
+                visible=bool(is_error and segment.audio_url),
+                on_click=make_copy_click(),
+            )
+
+            # Nút Import segment âm thanh ngoài
+            def make_import_click(idx=segment.index):
+                def on_click(e):
+                    picked = pick_audio_file_native(self.output_dir or "resources/layer/process")
+                    if picked:
+                        self.presenter.import_segment_audio(idx, picked)
+                return on_click
+
+            import_btn = ft.IconButton(
+                icon=ft.Icons.UPLOAD_FILE,
+                icon_color=ACCENT,
+                icon_size=18,
+                tooltip="Import file âm thanh ngoài",
+                on_click=make_import_click(),
+            )
+
             # Xác định ẩn/hiện bộ chỉnh tốc độ
             panel_visible = False
             if not is_error:
@@ -405,7 +562,10 @@ class TtsView(BaseFeatureView):
                                     status_icon,
                                     tune_btn,
                                     restart_btn,
-                                    ft.Text(segment.status, expand=True, color=ft.Colors.BLUE_GREY_400, size=12, selectable=True),
+                                    import_btn,
+                                    download_btn,
+                                    copy_btn,
+                                    ft.Text("" if (is_error and segment.audio_url) else segment.status, expand=True, color=ft.Colors.BLUE_GREY_400, size=12, selectable=True),
                                 ],
                             ),
                             ft.Row(
@@ -444,9 +604,15 @@ class TtsView(BaseFeatureView):
         controls["api_key_field"].value = self.api_key
         controls["api_key_field"].visible = self.provider == "gemini-tts"
         controls["capcut_cookie_field"].value = self.capcut_cookie
-        controls["capcut_cookie_field"].visible = self.provider == "capcut"
+        controls["capcut_cookie_field"].visible = self.provider == "capcut" and self.capcut_version == "v2"
         controls["capcut_workspace_id_field"].value = self.capcut_workspace_id
-        controls["capcut_workspace_id_field"].visible = self.provider == "capcut"
+        controls["capcut_workspace_id_field"].visible = self.provider == "capcut" and self.capcut_version == "v2"
+        controls["capcut_version_dropdown"].value = self.capcut_version
+        controls["capcut_version_dropdown"].visible = self.provider == "capcut"
+        controls["capcut_device_id_field"].value = self.capcut_device_id
+        controls["capcut_device_id_field"].visible = self.provider == "capcut" and self.capcut_version == "v1"
+        controls["proxy_field"].value = self.proxy
+        controls["proxy_field"].visible = self.provider == "capcut"
         controls["rate_slider"].value = self.rate
         controls["rate_value"].value = f"{self.rate:+d}%"
         controls["volume_slider"].value = self.volume
@@ -459,6 +625,10 @@ class TtsView(BaseFeatureView):
         controls["auto_merge_checkbox"].disabled = self.busy
         controls["merge_button"].disabled = self.busy or not self.segments
         controls["status_text"].value = self.status_text
+        if "advanced_toggle_btn" in controls:
+            controls["advanced_toggle_btn"].icon = ft.Icons.KEYBOARD_ARROW_DOWN if not self.show_advanced else ft.Icons.KEYBOARD_ARROW_UP
+        if "advanced_settings_container" in controls:
+            controls["advanced_settings_container"].visible = self.show_advanced
         controls["stage_text"].value = self.stage_text
         controls["current_file_text"].value = self.current_file_text
         controls["progress_bar"].visible = self.progress_visible
@@ -478,15 +648,17 @@ class TtsView(BaseFeatureView):
             "language_dropdown",
             "voice_dropdown",
             "api_key_field",
+            "capcut_version_dropdown",
             "capcut_cookie_field",
             "capcut_workspace_id_field",
+            "capcut_device_id_field",
+            "proxy_field",
             "rate_slider",
             "volume_slider",
             "max_workers_slider",
-            "keep_segments_checkbox",
-            "auto_merge_checkbox",
             "start_button",
-            "merge_button",
+            "import_dir_button",
+            "open_segments_button",
         ):
             controls[key].disabled = self.busy
         controls["start_button"].text = "Đang xử lý..." if self.busy else "Bắt đầu lồng tiếng"
@@ -577,7 +749,7 @@ class TtsView(BaseFeatureView):
             border_radius=12,
             expand=True,
             bgcolor=SURFACE_BG,
-            visible=self.provider == "capcut",
+            visible=self.provider == "capcut" and self.capcut_version == "v2",
         )
         capcut_workspace_id_field = ft.TextField(
             label="CapCut Workspace ID",
@@ -585,7 +757,36 @@ class TtsView(BaseFeatureView):
             border_radius=12,
             expand=True,
             bgcolor=SURFACE_BG,
+            visible=self.provider == "capcut" and self.capcut_version == "v2",
+        )
+        capcut_version_dropdown = ft.Dropdown(
+            label="Phiên bản API",
+            options=[
+                ft.dropdown.Option(key="v1", text="V1"),
+                ft.dropdown.Option(key="v2", text="V2"),
+            ],
+            value=self.capcut_version,
+            border_radius=12,
+            width=200,
+            bgcolor=SURFACE_BG,
             visible=self.provider == "capcut",
+        )
+        capcut_device_id_field = ft.TextField(
+            label="CapCut Device ID",
+            value=self.capcut_device_id,
+            border_radius=12,
+            expand=True,
+            bgcolor=SURFACE_BG,
+            visible=self.provider == "capcut" and self.capcut_version == "v1",
+        )
+        proxy_field = ft.TextField(
+            label="Proxy URL",
+            value=self.proxy,
+            border_radius=12,
+            expand=True,
+            bgcolor=SURFACE_BG,
+            visible=self.provider == "capcut",
+            hint_text="host:port:username:password",
         )
         rate_value = ft.Text(f"{self.rate:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
         volume_value = ft.Text(f"{self.volume:+d}%", color=ft.Colors.BLUE_GREY_100, width=58)
@@ -595,6 +796,85 @@ class TtsView(BaseFeatureView):
         max_workers_slider = ft.Slider(min=1, max=10, divisions=9, value=self.max_workers, label="{value} luồng", active_color=ACCENT)
         keep_segments_checkbox = ft.Checkbox(label="Giữ segment lẻ", value=self.keep_segments, active_color=ACCENT)
         auto_merge_checkbox = ft.Checkbox(label="Tự động gộp âm thanh", value=self.auto_merge, active_color=ACCENT)
+
+        def toggle_advanced(e: ft.ControlEvent) -> None:
+            self.show_advanced = not self.show_advanced
+            self._sync_controls()
+            self.refresh()
+
+        advanced_toggle_btn = ft.TextButton(
+            "Cài đặt nâng cao (Tốc độ, Âm lượng, Số luồng)",
+            icon=ft.Icons.KEYBOARD_ARROW_DOWN if not self.show_advanced else ft.Icons.KEYBOARD_ARROW_UP,
+            on_click=toggle_advanced,
+            style=ft.ButtonStyle(color=ACCENT),
+        )
+
+        advanced_settings_container = ft.Container(
+            visible=self.show_advanced,
+            padding=ft.Padding(left=8, top=4, right=8, bottom=8),
+            content=ft.Column(
+                spacing=16,
+                controls=[
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.SPEED, color=ACCENT),
+                            ft.Column(
+                                expand=True,
+                                controls=[
+                                    ft.Row([ft.Text("Tốc độ đọc"), rate_value]),
+                                    ft.Text(
+                                        "Tăng/giảm tốc độ đọc. Nếu audio dài hơn subtitle, hệ thống vẫn tự tăng tốc thêm để khớp thời gian.",
+                                        size=12,
+                                        color=ft.Colors.BLUE_GREY_200,
+                                        expand=True,
+                                    ),
+                                    rate_slider,
+                                ],
+                            ),
+                        ],
+                        spacing=12,
+                    ),
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.VOLUME_UP, color=ACCENT),
+                            ft.Column(
+                                expand=True,
+                                controls=[
+                                    ft.Row([ft.Text("Âm lượng"), volume_value]),
+                                    ft.Text(
+                                        "Điều chỉnh âm lượng giọng đọc trước khi gộp file audio tổng.",
+                                        size=12,
+                                        color=ft.Colors.BLUE_GREY_200,
+                                        expand=True,
+                                    ),
+                                    volume_slider,
+                                ],
+                            ),
+                        ],
+                        spacing=12,
+                    ),
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.DENSITY_MEDIUM, color=ACCENT),
+                            ft.Column(
+                                expand=True,
+                                controls=[
+                                    ft.Row([ft.Text("Số luồng xử lý song song"), max_workers_value]),
+                                    ft.Text(
+                                        "Tăng số luồng để tạo audio song song nhanh hơn. Khuyên dùng từ 3 - 5 luồng.",
+                                        size=12,
+                                        color=ft.Colors.BLUE_GREY_200,
+                                        expand=True,
+                                    ),
+                                    max_workers_slider,
+                                ],
+                            ),
+                        ],
+                        spacing=12,
+                    ),
+                ]
+            )
+        )
 
         status_text = ft.Text(self.status_text, color=WARN, size=13, selectable=True)
         current_file_text = ft.Text(self.current_file_text, color=ft.Colors.WHITE)
@@ -647,8 +927,17 @@ class TtsView(BaseFeatureView):
             icon=ft.Icons.FOLDER_OPEN,
             visible=self.open_folder_visible,
         )
+        open_segments_button = ft.OutlinedButton(
+            "Mở thư mục segment",
+            icon=ft.Icons.FOLDER_ZIP_OUTLINED,
+        )
+        import_dir_button = ft.OutlinedButton(
+            "Import thư mục segment",
+            icon=ft.Icons.DRIVE_FOLDER_UPLOAD,
+        )
 
         self._controls = {
+            "import_dir_button": import_dir_button,
             "input_srt_row": input_srt_row,
             "input_text_row": input_text_row,
             "input_mode_dropdown": input_mode_dropdown,
@@ -659,8 +948,11 @@ class TtsView(BaseFeatureView):
             "language_dropdown": language_dropdown,
             "voice_dropdown": voice_dropdown,
             "api_key_field": api_key_field,
+            "capcut_version_dropdown": capcut_version_dropdown,
             "capcut_cookie_field": capcut_cookie_field,
             "capcut_workspace_id_field": capcut_workspace_id_field,
+            "capcut_device_id_field": capcut_device_id_field,
+            "proxy_field": proxy_field,
             "rate_slider": rate_slider,
             "rate_value": rate_value,
             "volume_slider": volume_slider,
@@ -676,12 +968,15 @@ class TtsView(BaseFeatureView):
             "progress_card": progress_card,
             "result_list": result_list,
             "line_count_text": line_count_text,
+            "advanced_toggle_btn": advanced_toggle_btn,
+            "advanced_settings_container": advanced_settings_container,
             "choose_input_button": choose_input_button,
             "choose_output_button": choose_output_button,
             "reset_output_button": reset_output_button,
             "start_button": start_button,
             "merge_button": merge_button,
             "open_folder_button": open_folder_button,
+            "open_segments_button": open_segments_button,
         }
 
         def choose_input(_: ft.ControlEvent) -> None:
@@ -710,20 +1005,61 @@ class TtsView(BaseFeatureView):
         def on_api_key_change(event: ft.ControlEvent) -> None:
             self.presenter.handle_api_key_change(event.control.value or "")
 
+        def on_capcut_version_change(event: ft.ControlEvent) -> None:
+            self.capcut_version = event.control.value or "v2"
+            import json
+            self.api_keys["capcut"] = json.dumps({
+                "version": self.capcut_version,
+                "cookie": self.capcut_cookie,
+                "workspace_id": self.capcut_workspace_id,
+                "device_id": self.capcut_device_id,
+                "proxy": self.proxy
+            })
+            self.presenter.reload_voices()
+            self.refresh()
+
         def on_capcut_cookie_change(event: ft.ControlEvent) -> None:
             self.capcut_cookie = event.control.value or ""
             import json
             self.api_keys["capcut"] = json.dumps({
+                "version": self.capcut_version,
                 "cookie": self.capcut_cookie,
-                "workspace_id": self.capcut_workspace_id
+                "workspace_id": self.capcut_workspace_id,
+                "device_id": self.capcut_device_id,
+                "proxy": self.proxy
             })
 
         def on_capcut_workspace_id_change(event: ft.ControlEvent) -> None:
             self.capcut_workspace_id = event.control.value or ""
             import json
             self.api_keys["capcut"] = json.dumps({
+                "version": self.capcut_version,
                 "cookie": self.capcut_cookie,
-                "workspace_id": self.capcut_workspace_id
+                "workspace_id": self.capcut_workspace_id,
+                "device_id": self.capcut_device_id,
+                "proxy": self.proxy
+            })
+
+        def on_capcut_device_id_change(event: ft.ControlEvent) -> None:
+            self.capcut_device_id = event.control.value or ""
+            import json
+            self.api_keys["capcut"] = json.dumps({
+                "version": self.capcut_version,
+                "cookie": self.capcut_cookie,
+                "workspace_id": self.capcut_workspace_id,
+                "device_id": self.capcut_device_id,
+                "proxy": self.proxy
+            })
+
+        def on_proxy_change(event: ft.ControlEvent) -> None:
+            self.proxy = event.control.value or ""
+            import json
+            self.api_keys["capcut"] = json.dumps({
+                "version": self.capcut_version,
+                "cookie": self.capcut_cookie,
+                "workspace_id": self.capcut_workspace_id,
+                "device_id": self.capcut_device_id,
+                "proxy": self.proxy
             })
 
         def on_input_mode_change(event: ft.ControlEvent) -> None:
@@ -756,8 +1092,11 @@ class TtsView(BaseFeatureView):
             if self.provider == "capcut":
                 import json
                 self.api_key = json.dumps({
+                    "version": self.capcut_version,
                     "cookie": self.capcut_cookie,
-                    "workspace_id": self.capcut_workspace_id
+                    "workspace_id": self.capcut_workspace_id,
+                    "device_id": self.capcut_device_id,
+                    "proxy": self.proxy
                 })
             else:
                 self.api_key = api_key_field.value or ""
@@ -777,6 +1116,16 @@ class TtsView(BaseFeatureView):
             else:
                 open_folder(self.output_dir)
 
+        def open_segments_folder(_: ft.ControlEvent) -> None:
+            try:
+                segment_dir = self.presenter.get_segment_dir()
+                if segment_dir.exists():
+                    open_folder(str(segment_dir))
+                else:
+                    self.notify("Thư mục segment chưa được tạo hoặc đã bị xóa.", "#D32F2F")
+            except Exception as exc:
+                self.notify(f"Không thể mở thư mục segment: {exc}", "#D32F2F")
+
         input_mode_dropdown.on_select = on_input_mode_change
         input_text_field.on_change = on_input_text_change
         choose_input_button.on_click = choose_input
@@ -788,6 +1137,9 @@ class TtsView(BaseFeatureView):
         api_key_field.on_change = on_api_key_change
         capcut_cookie_field.on_change = on_capcut_cookie_change
         capcut_workspace_id_field.on_change = on_capcut_workspace_id_change
+        capcut_version_dropdown.on_select = on_capcut_version_change
+        capcut_device_id_field.on_change = on_capcut_device_id_change
+        proxy_field.on_change = on_proxy_change
         rate_slider.on_change = on_rate_change
         volume_slider.on_change = on_volume_change
         max_workers_slider.on_change = on_max_workers_change
@@ -796,6 +1148,14 @@ class TtsView(BaseFeatureView):
         start_button.on_click = start_tts
         merge_button.on_click = merge_audio_action
         open_folder_button.on_click = open_output_folder
+        open_segments_button.on_click = open_segments_folder
+
+        def import_segment_dir(e: ft.ControlEvent) -> None:
+            picked = pick_directory_native(self.output_dir or str(DEFAULT_TTS_OUTPUT_DIR))
+            if picked:
+                self.presenter.import_segment_directory(picked)
+
+        import_dir_button.on_click = import_segment_dir
 
         self._sync_controls()
 
@@ -820,64 +1180,9 @@ class TtsView(BaseFeatureView):
                             spacing=12,
                             controls=[
                                 ft.Row([provider_dropdown, language_dropdown, voice_dropdown], spacing=12),
-                                ft.Row([api_key_field, capcut_cookie_field, capcut_workspace_id_field], spacing=12),
-                                ft.Row(
-                                    [
-                                        ft.Icon(ft.Icons.SPEED, color=ACCENT),
-                                        ft.Column(
-                                            expand=True,
-                                            controls=[
-                                                ft.Row([ft.Text("Tốc độ đọc"), rate_value]),
-                                                ft.Text(
-                                                    "Tăng/giảm tốc độ đọc. Nếu audio dài hơn subtitle, hệ thống vẫn tự tăng tốc thêm để khớp thời gian.",
-                                                    size=12,
-                                                    color=ft.Colors.BLUE_GREY_200,
-                                                    expand=True,
-                                                ),
-                                                rate_slider,
-                                            ],
-                                        ),
-                                    ],
-                                    spacing=12,
-                                ),
-                                ft.Row(
-                                    [
-                                        ft.Icon(ft.Icons.VOLUME_UP, color=ACCENT),
-                                        ft.Column(
-                                            expand=True,
-                                            controls=[
-                                                ft.Row([ft.Text("Âm lượng"), volume_value]),
-                                                ft.Text(
-                                                    "Điều chỉnh âm lượng giọng đọc trước khi gộp file audio tổng.",
-                                                    size=12,
-                                                    color=ft.Colors.BLUE_GREY_200,
-                                                    expand=True,
-                                                ),
-                                                volume_slider,
-                                            ],
-                                        ),
-                                    ],
-                                    spacing=12,
-                                ),
-                                ft.Row(
-                                    [
-                                        ft.Icon(ft.Icons.DENSITY_MEDIUM, color=ACCENT),
-                                        ft.Column(
-                                            expand=True,
-                                            controls=[
-                                                ft.Row([ft.Text("Số luồng xử lý song song"), max_workers_value]),
-                                                ft.Text(
-                                                    "Tăng số luồng để tạo audio song song nhanh hơn. Khuyên dùng từ 3 - 5 luồng.",
-                                                    size=12,
-                                                    color=ft.Colors.BLUE_GREY_200,
-                                                    expand=True,
-                                                ),
-                                                max_workers_slider,
-                                            ],
-                                        ),
-                                    ],
-                                    spacing=12,
-                                ),
+                                ft.Row([api_key_field, capcut_version_dropdown, capcut_cookie_field, capcut_workspace_id_field, capcut_device_id_field, proxy_field], spacing=12),
+                                advanced_toggle_btn,
+                                advanced_settings_container,
                                 ft.Row(
                                     [
                                         auto_merge_checkbox,
@@ -916,6 +1221,8 @@ class TtsView(BaseFeatureView):
                                         ft.Icon(ft.Icons.AUDIO_FILE, color=ft.Colors.BLUE_200),
                                         ft.Text("Segment Âm Thanh", size=18, weight=ft.FontWeight.BOLD),
                                         ft.Container(expand=True),
+                                        import_dir_button,
+                                        open_segments_button,
                                         line_count_text,
                                     ]
                                 ),

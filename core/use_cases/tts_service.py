@@ -19,6 +19,7 @@ from infrastructure.providers.tts import (
     TtsResult,
     TtsSegment,
     TtsVoice,
+    TTSAudioDownloadError,
     adjust_speed,
     apply_volume,
     compose_timeline,
@@ -263,6 +264,7 @@ class TtsService:
                 except Exception as exc:
                     preview = " ".join(segment.text.split())[:120]
                     print(f"[TTS Error] Lỗi tạo audio ở segment {segment.index}: {exc}. Nội dung: {preview}")
+                    audio_url = getattr(exc, "audio_url", None)
                     gen_seg = GeneratedSegment(
                         index=segment.index,
                         start_time=segment.start_time,
@@ -272,6 +274,7 @@ class TtsService:
                         final_duration_sec=None,
                         file_path=None,
                         status="error",
+                        audio_url=audio_url,
                     )
 
                 nonlocal completed_count

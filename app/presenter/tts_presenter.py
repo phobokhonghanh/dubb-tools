@@ -39,14 +39,20 @@ class TtsPresenter:
         
         # Load CapCut config
         capcut_key = str(self.view.api_keys.get("capcut") or "")
+        self.view.capcut_version = "v2"
         self.view.capcut_cookie = ""
         self.view.capcut_workspace_id = ""
+        self.view.capcut_device_id = ""
+        self.view.proxy = ""
         if capcut_key:
             try:
                 import json
                 capcut_data = json.loads(capcut_key)
+                self.view.capcut_version = capcut_data.get("version", "v2")
                 self.view.capcut_cookie = capcut_data.get("cookie", "")
                 self.view.capcut_workspace_id = capcut_data.get("workspace_id", "")
+                self.view.capcut_device_id = capcut_data.get("device_id", "")
+                self.view.proxy = capcut_data.get("proxy", "")
             except Exception:
                 if ":" in capcut_key:
                     parts = capcut_key.split(":", 1)
@@ -59,18 +65,23 @@ class TtsPresenter:
         self.maybe_prefill_latest_srt()
         self.view.refresh()
 
+    def _get_current_provider_api_key(self) -> str:
+        provider = self.view.provider
+        if provider == "capcut":
+            import json
+            return json.dumps({
+                "version": getattr(self.view, "capcut_version", "v2"),
+                "cookie": getattr(self.view, "capcut_cookie", ""),
+                "workspace_id": getattr(self.view, "capcut_workspace_id", ""),
+                "device_id": getattr(self.view, "capcut_device_id", ""),
+                "proxy": getattr(self.view, "proxy", "")
+            })
+        return self.view.api_key
+
     def reload_voices(self) -> None:
         """Tải danh sách giọng đọc từ nhà cung cấp đã chọn."""
         try:
-            api_key = None
-            if self.view.provider == "gemini-tts":
-                api_key = self.view.api_key
-            elif self.view.provider == "capcut":
-                import json
-                api_key = json.dumps({
-                    "cookie": getattr(self.view, "capcut_cookie", ""),
-                    "workspace_id": getattr(self.view, "capcut_workspace_id", "")
-                })
+            api_key = self._get_current_provider_api_key()
             self.view.voices = self.service.list_voices(
                 provider=self.view.provider,
                 language=self.view.language,
@@ -206,14 +217,21 @@ class TtsPresenter:
             self.view.refresh()
             return
         if self.view.provider == "capcut":
-            if not getattr(self.view, "capcut_cookie", "").strip():
-                self.view.status_text = "Vui lòng nhập CapCut Cookie."
-                self.view.refresh()
-                return
-            if not getattr(self.view, "capcut_workspace_id", "").strip():
-                self.view.status_text = "Vui lòng nhập CapCut Workspace ID."
-                self.view.refresh()
-                return
+            version = getattr(self.view, "capcut_version", "v2")
+            if version == "v2":
+                if not getattr(self.view, "capcut_cookie", "").strip():
+                    self.view.status_text = "Vui lòng nhập CapCut Cookie."
+                    self.view.refresh()
+                    return
+                if not getattr(self.view, "capcut_workspace_id", "").strip():
+                    self.view.status_text = "Vui lòng nhập CapCut Workspace ID."
+                    self.view.refresh()
+                    return
+            elif version == "v1":
+                if not getattr(self.view, "capcut_device_id", "").strip():
+                    self.view.status_text = "Vui lòng nhập CapCut Device ID."
+                    self.view.refresh()
+                    return
 
         self.view.show_progress_card = True
         self.view.progress_visible = True
@@ -276,7 +294,7 @@ class TtsPresenter:
         keep_segments = self.view.keep_segments
         auto_merge = self.view.auto_merge
         max_workers = self.view.max_workers
-        api_key = self.view.api_key
+        api_key = self._get_current_provider_api_key()
 
         def worker() -> None:
             try:
@@ -413,16 +431,44 @@ class TtsPresenter:
                     self.view.notify("Không tìm thấy tệp âm thanh gốc.", "#D32F2F")
                     return
 
+            # Check if this segment uses raw only (e.g. imported)
+            use_raw_only = bool(target_segment.is_imported)
+
             raw_duration = target_segment.raw_duration_sec or 1.0
             target_duration = raw_duration / speed
-            timed_path = segment_dir / f"{segment_index:04d}_timed.mp3"
 
             from infrastructure.providers.tts.timing import adjust_speed, get_duration
-            adjust_speed(raw_path, timed_path, target_duration)
 
-            # Update the segment
-            target_segment.file_path = str(timed_path)
-            target_segment.final_duration_sec = get_duration(timed_path)
+            if use_raw_only:
+                temp_raw_path = segment_dir / f"{segment_index:04d}_temp_raw.mp3"
+                adjust_speed(raw_path, temp_raw_path, target_duration)
+                
+                # Replace the original raw_path with the adjusted audio
+                import shutil
+                if temp_raw_path.exists():
+                    shutil.move(str(temp_raw_path), str(raw_path))
+
+                # Update the segment
+                new_duration = get_duration(raw_path)
+                target_segment.file_path = str(raw_path)
+                target_segment.raw_duration_sec = new_duration
+                target_segment.final_duration_sec = new_duration
+            else:
+                timed_path = segment_dir / f"{segment_index:04d}_timed.mp3"
+                adjust_speed(raw_path, timed_path, target_duration)
+
+                # Update the segment
+                target_segment.file_path = str(timed_path)
+                target_segment.final_duration_sec = get_duration(timed_path)
+
+            # Xóa file preview
+            preview_path = segment_dir / f"{segment_index:04d}_preview.mp3"
+            if preview_path.exists():
+                try:
+                    preview_path.unlink()
+                except Exception as e:
+                    print(f"[Apply Error] Không thể xóa file preview: {e}")
+
             self.view.notify(f"Đã áp dụng tốc độ {speed:.2f}x cho phân đoạn {segment_index}.", "#2E7D32")
             self.view.refresh()
         except Exception as exc:
@@ -440,7 +486,16 @@ class TtsPresenter:
             if raw_path.exists():
                 target_segment.file_path = str(raw_path)
                 target_segment.final_duration_sec = target_segment.raw_duration_sec
-                self.view.refresh()
+
+            # Xóa file preview
+            preview_path = segment_dir / f"{segment_index:04d}_preview.mp3"
+            if preview_path.exists():
+                try:
+                    preview_path.unlink()
+                except Exception as e:
+                    print(f"[Cancel Error] Không thể xóa file preview: {e}")
+
+            self.view.refresh()
         except Exception as exc:
             print(f"[Cancel Error] {exc}")
 
@@ -476,7 +531,7 @@ class TtsPresenter:
         rate = self.view.rate
         volume = self.view.volume
         pitch = self.view.pitch
-        api_key = self.view.api_key
+        api_key = self._get_current_provider_api_key()
 
         def worker() -> None:
             try:
@@ -514,5 +569,248 @@ class TtsPresenter:
                 self.view.refresh()
                 self.view.notify(f"Lỗi tạo lại phân đoạn {segment_index}", "#D32F2F")
                 print(f"[TTS Error] Lỗi tạo lại phân đoạn {segment_index}: {exc}")
+
+        self.view.run_in_thread(worker)
+
+    def download_audio_url_manually(self, segment_index: int, audio_url: str) -> None:
+        """Tải xuống thủ công từ CDN khi lấy được audio_url nhưng download bị timeout."""
+        target_segment = next((s for s in self.view.segments if s.index == segment_index), None)
+        if not target_segment:
+            self.view.notify("Không tìm thấy phân đoạn.", "#D32F2F")
+            return
+
+        segment_dir = self.get_segment_dir()
+        if not segment_dir:
+            self.view.notify("Thư mục lưu trữ không khả dụng.", "#D32F2F")
+            return
+
+        segment_dir.mkdir(parents=True, exist_ok=True)
+        raw_path = segment_dir / f"{segment_index:04d}_raw.mp3"
+
+        self.set_busy(True)
+        self.view.stage_text = f"Đang tải lại âm thanh segment {segment_index}..."
+        self.view.refresh()
+
+        def worker() -> None:
+            try:
+                import requests
+                proxies = None
+                if self.view.proxy:
+                    proxies = {"http": self.view.proxy, "https": self.view.proxy}
+                
+                # Thực hiện tải xuống
+                res = requests.get(audio_url, proxies=proxies, timeout=45)
+                res.raise_for_status()
+                
+                # Ghi file
+                raw_path.write_bytes(res.content)
+
+                # Cập nhật thời lượng
+                from infrastructure.providers.tts import get_duration
+                raw_duration = get_duration(raw_path)
+                
+                # Cập nhật trạng thái segment
+                target_segment.file_path = str(raw_path)
+                target_segment.raw_duration_sec = raw_duration
+                target_segment.final_duration_sec = raw_duration
+                target_segment.status = "done"
+
+                self.view.refresh()
+                self.view.notify(f"Tải thành công segment {segment_index}!", "#2E7D32")
+            except Exception as exc:
+                self.view.notify(f"Lỗi khi tải segment {segment_index}: {exc}", "#D32F2F")
+            finally:
+                self.set_busy(False)
+                self.view.stage_text = "--"
+                self.view.refresh()
+
+        self.view.run_in_thread(worker)
+
+    def import_segment_audio(self, segment_index: int, source_audio_path: str) -> None:
+        """Import file âm thanh ngoài thay thế cho phân đoạn hiện tại."""
+        target_segment = next((s for s in self.view.segments if s.index == segment_index), None)
+        if not target_segment:
+            self.view.notify("Không tìm thấy phân đoạn.", "#D32F2F")
+            return
+
+        src_path = Path(source_audio_path)
+        if not src_path.exists() or not src_path.is_file():
+            self.view.notify("File âm thanh nguồn không tồn tại.", "#D32F2F")
+            return
+
+        self.set_busy(True)
+        self.view.stage_text = f"Đang import âm thanh segment {segment_index}..."
+        self.view.refresh()
+
+        def worker() -> None:
+            try:
+                segment_dir = self.get_segment_dir()
+                segment_dir.mkdir(parents=True, exist_ok=True)
+                
+                raw_path = segment_dir / f"{segment_index:04d}_raw.mp3"
+                timed_path = segment_dir / f"{segment_index:04d}_timed.mp3"
+
+                import shutil
+                if src_path.suffix.lower() == ".mp3":
+                    shutil.copy2(src_path, raw_path)
+                else:
+                    from infrastructure.providers.tts.composer import convert_to_mp3
+                    convert_to_mp3(src_path, raw_path)
+                
+                # Delete timed_path if it exists to keep only raw
+                if timed_path.exists():
+                    try:
+                        timed_path.unlink()
+                    except Exception:
+                        pass
+
+                from infrastructure.providers.tts import get_duration
+                duration = get_duration(raw_path)
+
+                target_segment.file_path = str(raw_path)
+                target_segment.raw_duration_sec = duration
+                target_segment.final_duration_sec = duration
+                target_segment.is_imported = True
+                target_segment.status = "done"
+
+                self.view.refresh()
+                self.view.notify(f"Đã import thành công file âm thanh cho phân đoạn {segment_index}!", "#2E7D32")
+            except Exception as exc:
+                self.view.notify(f"Lỗi khi import âm thanh: {exc}", "#D32F2F")
+            finally:
+                self.set_busy(False)
+                self.view.stage_text = "--"
+                self.view.refresh()
+
+        self.view.run_in_thread(worker)
+
+    def import_segment_directory(self, import_dir_path: str) -> None:
+        """Import toàn bộ thư mục chứa các file âm thanh phân đoạn."""
+        import_dir = Path(import_dir_path)
+        if not import_dir.exists() or not import_dir.is_dir():
+            self.view.notify("Thư mục import không tồn tại.", "#D32F2F")
+            return
+
+        self.set_busy(True)
+        self.view.stage_text = "Đang import thư mục segment..."
+        self.view.refresh()
+
+        def worker() -> None:
+            try:
+                import re
+                import shutil
+                from infrastructure.providers.tts import get_duration
+                from infrastructure.providers.tts.models import GeneratedSegment
+
+                segment_dir = self.get_segment_dir()
+                segment_dir.mkdir(parents=True, exist_ok=True)
+
+                # Gom nhóm các file theo index
+                files_by_idx = {}
+                for f in import_dir.iterdir():
+                    if f.is_file() and f.suffix.lower() in (".mp3", ".wav", ".m4a", ".aac", ".flac"):
+                        match = re.search(r'\d+', f.name)
+                        if match:
+                            idx = int(match.group(0))
+                            if idx not in files_by_idx:
+                                files_by_idx[idx] = []
+                            files_by_idx[idx].append(f)
+
+                if not files_by_idx:
+                    self.view.notify("Không tìm thấy file âm thanh hợp lệ trong thư mục chọn.", "#D32F2F")
+                    return
+
+                # Chuyển đổi list segments hiện tại thành dict để dễ tra cứu/cập nhật
+                existing_segments = {s.index: s for s in self.view.segments}
+                imported_count = 0
+
+                def format_seconds_to_srt(seconds: float) -> str:
+                    h = int(seconds // 3600)
+                    m = int((seconds % 3600) // 60)
+                    s = int(seconds % 60)
+                    ms = int(round((seconds - int(seconds)) * 1000))
+                    if ms >= 1000:
+                        ms = 999
+                    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+                for idx, candidates in files_by_idx.items():
+                    # Lựa chọn file tối ưu nhất cho index này
+                    selected_file = None
+                    # Ưu tiên các file chứa từ khóa "timed" hoặc "final"
+                    for c in candidates:
+                        if "timed" in c.name.lower() or "final" in c.name.lower():
+                            selected_file = c
+                            break
+                    # Kế đến ưu tiên "raw" hoặc "speech"
+                    if not selected_file:
+                        for c in candidates:
+                            if "raw" in c.name.lower() or "speech" in c.name.lower():
+                                selected_file = c
+                                break
+                    # Fallback về file đầu tiên
+                    if not selected_file:
+                        selected_file = candidates[0]
+
+                    # Thực hiện copy sang segment_dir của dự án
+                    raw_path = segment_dir / f"{idx:04d}_raw.mp3"
+                    timed_path = segment_dir / f"{idx:04d}_timed.mp3"
+
+                    if selected_file.suffix.lower() == ".mp3":
+                        shutil.copy2(selected_file, raw_path)
+                    else:
+                        from infrastructure.providers.tts.composer import convert_to_mp3
+                        convert_to_mp3(selected_file, raw_path)
+                    
+                    # Delete timed_path if it exists to keep only raw
+                    if timed_path.exists():
+                        try:
+                            timed_path.unlink()
+                        except Exception:
+                            pass
+
+                    # Đo thời lượng và cập nhật hoặc tạo mới segment
+                    duration = get_duration(raw_path)
+
+                    if idx in existing_segments:
+                        segment = existing_segments[idx]
+                        segment.file_path = str(raw_path)
+                        segment.raw_duration_sec = duration
+                        segment.final_duration_sec = duration
+                        segment.is_imported = True
+                        segment.status = "done"
+                    else:
+                        # Tạo mới segment nếu chưa tồn tại
+                        new_seg = GeneratedSegment(
+                            index=idx,
+                            start_time="00:00:00,000",
+                            end_time=format_seconds_to_srt(duration),
+                            target_duration_sec=duration,
+                            raw_duration_sec=duration,
+                            final_duration_sec=duration,
+                            file_path=str(raw_path),
+                            status="done",
+                            is_imported=True
+                        )
+                        existing_segments[idx] = new_seg
+                    imported_count += 1
+
+                # Gán lại danh sách segment đã sắp xếp theo index
+                sorted_segments = [existing_segments[k] for k in sorted(existing_segments.keys())]
+                self.view.segments = sorted_segments
+                self.update_line_count()
+
+                # Đảm bảo slider_values cũng được khởi tạo cho các segment mới
+                for segment in sorted_segments:
+                    if segment.index not in self.view.slider_values:
+                        self.view.slider_values[segment.index] = 1.0
+
+                self.view.refresh()
+                self.view.notify(f"Đã import thành công {imported_count} phân đoạn từ thư mục!", "#2E7D32")
+            except Exception as exc:
+                self.view.notify(f"Lỗi khi import thư mục: {exc}", "#D32F2F")
+            finally:
+                self.set_busy(False)
+                self.view.stage_text = "--"
+                self.view.refresh()
 
         self.view.run_in_thread(worker)

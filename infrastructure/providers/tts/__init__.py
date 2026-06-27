@@ -14,6 +14,7 @@ from infrastructure.providers.tts.models import (
     TtsResult,
     TtsSegment,
     TtsVoice,
+    TTSAudioDownloadError,
 )
 from infrastructure.providers.tts.timing import (
     adjust_speed,
@@ -41,6 +42,7 @@ __all__ = [
     "TtsResult",
     "TtsSegment",
     "TtsVoice",
+    "TTSAudioDownloadError",
     "adjust_speed",
     "apply_volume",
     "build_atempo_filter",

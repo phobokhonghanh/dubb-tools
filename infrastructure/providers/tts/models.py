@@ -29,7 +29,10 @@ GEMINI_VOICES = [
     "Leda",
     "Aoede",
 ]
-
+class TTSAudioDownloadError(Exception):
+    def __init__(self, message: str, audio_url: str):
+        super().__init__(message)
+        self.audio_url = audio_url
 
 @dataclass
 class TtsSegment:
@@ -61,6 +64,8 @@ class GeneratedSegment:
     final_duration_sec: Optional[float]
     file_path: Optional[str]
     status: str
+    audio_url: Optional[str] = None
+    is_imported: bool = False
 
 
 @dataclass

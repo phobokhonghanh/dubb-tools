@@ -371,6 +371,41 @@ def test_presenter_apply_adjusted_speed(mock_get_duration, mock_adjust_speed, mo
 
 
 @patch("app.presenter.tts_presenter.TtsPresenter.get_segment_dir")
+@patch("infrastructure.providers.tts.timing.adjust_speed")
+@patch("infrastructure.providers.tts.timing.get_duration")
+def test_presenter_apply_adjusted_speed_imported(mock_get_duration, mock_adjust_speed, mock_get_segment_dir, tmp_path):
+    mock_get_segment_dir.return_value = tmp_path
+    mock_get_duration.return_value = 1.33
+    
+    mock_service = MagicMock()
+    view = MockView()
+    from infrastructure.providers.tts.models import GeneratedSegment
+    seg = GeneratedSegment(
+        index=1,
+        start_time="00:00:01",
+        end_time="00:00:03",
+        target_duration_sec=2.0,
+        raw_duration_sec=2.0,
+        final_duration_sec=2.0,
+        file_path=str(tmp_path / "0001_raw.mp3"),
+        status="done",
+        is_imported=True
+    )
+    view.segments = [seg]
+    
+    # Pre-create raw file
+    raw_file = tmp_path / "0001_raw.mp3"
+    raw_file.write_text("dummy audio content")
+    
+    presenter = TtsPresenter(view, service=mock_service)
+    presenter.apply_adjusted_speed(segment_index=1, speed=1.5)
+    
+    assert seg.final_duration_sec == 1.33
+    assert "0001_raw.mp3" in seg.file_path
+    assert "Đã áp dụng tốc độ 1.50x" in view.notified_msg
+
+
+@patch("app.presenter.tts_presenter.TtsPresenter.get_segment_dir")
 def test_presenter_cancel_adjusted_speed(mock_get_segment_dir, tmp_path):
     mock_get_segment_dir.return_value = tmp_path
     
