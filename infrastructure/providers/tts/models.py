@@ -4,31 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-
-DEFAULT_TTS_OUTPUT_DIR = Path("resources/layer/process")
-DEFAULT_TTS_PROVIDER = "edge-tts"
-GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview"
-LANGUAGE_OPTIONS = {
-    "vi": "Tiếng Việt",
-    "en": "English",
-    "zh": "中文",
-    "ja": "日本語",
-    "ko": "한국어",
-    "th": "ไทย",
-    "fr": "Français",
-    "de": "Deutsch",
-    "es": "Español",
-}
-GEMINI_VOICES = [
-    "Orus",
-    "Zephyr",
-    "Puck",
-    "Charon",
-    "Kore",
-    "Fenrir",
-    "Leda",
-    "Aoede",
-]
 class TTSAudioDownloadError(Exception):
     def __init__(self, message: str, audio_url: str):
         super().__init__(message)

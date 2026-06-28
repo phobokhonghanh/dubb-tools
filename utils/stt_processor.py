@@ -8,9 +8,9 @@ from threading import Event
 from typing import Callable, Optional
 
 from faster_whisper import WhisperModel
+from constants import DEFAULT_OUTPUT_DIR
 
-
-DEFAULT_STT_OUTPUT_DIR = Path("resources/layer/process")
+DEFAULT_STT_OUTPUT_DIR = DEFAULT_OUTPUT_DIR
 SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg"}
 SUPPORTED_LANGUAGES = {"auto", "vi", "en", "zh", "ja", "ko", "fr", "de", "es", "th"}
 PROTECTED_SEGMENT_KEYWORDS = {

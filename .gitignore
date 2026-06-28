@@ -15,8 +15,13 @@ env/
 # Local environment and secrets
 .env
 .env.*
-config/*.json
+config/secrets.json
+config/pipeline_last_run.json
+config/capcut_device.json
+config/local_config.json
 config/.key
+config/user/
+
 
 # Docs (keep only context)
 docs/**

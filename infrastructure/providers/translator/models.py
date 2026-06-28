@@ -5,20 +5,6 @@ from pathlib import Path
 from typing import Optional
 
 
-DEFAULT_TRANSLATE_OUTPUT_DIR = Path("resources/layer/process")
-DEFAULT_TRANSLATE_MODEL = "gemini-3.5-flash"
-LANGUAGE_OPTIONS = {
-    "vi": "Tiếng Việt",
-    "en": "English",
-    "zh": "中文",
-    "ja": "日本語",
-    "ko": "한국어",
-    "th": "ไทย",
-    "fr": "Français",
-    "de": "Deutsch",
-    "es": "Español",
-}
-
 
 @dataclass
 class SrtSegment:

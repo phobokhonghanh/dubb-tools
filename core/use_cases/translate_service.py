@@ -8,10 +8,15 @@ from threading import Event, Lock
 from typing import Callable, Optional
 
 from utils.stt_processor import TranscriptSegment, cleanup_transcript_segments
-from config.paths import Paths
-from infrastructure.providers.translator import (
+from utils.loader import load_json_file
+from constants import (
     DEFAULT_TRANSLATE_MODEL,
     DEFAULT_TRANSLATE_OUTPUT_DIR,
+    TRANSLATE_MODELS,
+    save_user_output_dir,
+    TRANSLATOR_CONFIG_PATH,
+)
+from infrastructure.providers.translator import (
     GeminiTranslator,
     SrtSegment,
     TranslateProgress,
@@ -22,10 +27,6 @@ from infrastructure.providers.translator import (
     serialize_srt,
 )
 
-
-CONFIG_PATH = Paths.get_config_path("translator_config.json")
-
-
 @dataclass
 class TranslateCallbacks:
     on_progress: Optional[Callable[[TranslateProgress], None]] = None
@@ -33,20 +34,8 @@ class TranslateCallbacks:
     on_success: Optional[Callable[[TranslateResult], None]] = None
     on_error: Optional[Callable[[TranslateResult], None]] = None
 
-
-def default_config() -> dict:
-    return {
-        "provider": "gemini",
-        "model": DEFAULT_TRANSLATE_MODEL,
-        "gemini_api_key": "",
-        "api_keys": {},
-        "target_language": "vi",
-        "content_safety": False,
-    }
-
-
 class TranslateService:
-    def __init__(self, config_path: str | Path = CONFIG_PATH) -> None:
+    def __init__(self, config_path: str | Path = TRANSLATOR_CONFIG_PATH) -> None:
         self._lock = Lock()
         self._active = False
         self._stop_event = Event()
@@ -59,68 +48,63 @@ class TranslateService:
     def stop(self) -> None:
         self._stop_event.set()
 
-    def load_config(self) -> dict:
-        config = default_config()
-        if not self.config_path.exists():
-            return config
-        try:
-            loaded = json.loads(self.config_path.read_text(encoding="utf-8"))
-        except Exception:
-            return config
-        if isinstance(loaded, dict):
-            config.update({key: value for key, value in loaded.items() if key in config})
-        
-        # Decrypt API Keys
-        from utils import crypto
-        gemini_api_key = config.get("gemini_api_key")
-        if gemini_api_key:
-            decrypted = crypto.decrypt(gemini_api_key)
-            config["gemini_api_key"] = decrypted if decrypted is not None else gemini_api_key
+    def get_default_model(self) -> str:
+        return DEFAULT_TRANSLATE_MODEL
 
-        api_keys = config.get("api_keys")
-        if isinstance(api_keys, dict):
-            decrypted_keys = {}
-            for k, v in api_keys.items():
-                if v:
-                    decrypted = crypto.decrypt(v)
-                    decrypted_keys[k] = decrypted if decrypted is not None else v
-                else:
-                    decrypted_keys[k] = v
-            config["api_keys"] = decrypted_keys
+    def default_config(self) -> dict:
+        default_model = self.get_default_model()
+        return {
+            "provider": "gemini",
+            "model": default_model,
+            "api_key": "",
+            "target_language": "vi",
+            "content_safety": False,
+        }
+
+    def get_model_options(self) -> list[str]:
+        return TRANSLATE_MODELS
+
+    def load_config(self) -> dict:
+        config = self.default_config()
+        if self.config_path.exists():
+            try:
+                loaded = load_json_file(self.config_path)
+                if isinstance(loaded, dict):
+                    config.update({k: v for k, v in loaded.items() if k in config})
+            except Exception:
+                pass
+        
+        encrypted_key = config.get("api_key", "")
+        decrypted_key = ""
+        if encrypted_key:
+            from utils import crypto
+            dec = crypto.decrypt(encrypted_key)
+            decrypted_key = dec if dec is not None else encrypted_key
+        config["api_key"] = decrypted_key
+        
         return config
 
     def save_config(self, config: dict) -> None:
-        data = default_config()
-        existing = self.load_config()
-        data.update(existing)
+        data = self.default_config()
+        if self.config_path.exists():
+            try:
+                loaded = load_json_file(self.config_path)
+                if isinstance(loaded, dict):
+                    data.update({k: v for k, v in loaded.items() if k in data})
+            except Exception:
+                pass
+        
         data.update({key: value for key, value in config.items() if key in data})
-        model = str(data.get("model") or DEFAULT_TRANSLATE_MODEL)
-        api_key = str(config.get("gemini_api_key") or "")
-        api_keys = data.get("api_keys")
-        if not isinstance(api_keys, dict):
-            api_keys = {}
-        if api_key:
-            api_keys[model] = api_key
-        data["api_keys"] = api_keys
-
-        # Encrypt API Keys before saving
+        
+        api_key = config.get("api_key") or ""
+            
         from utils import crypto
-        gemini_api_key = data.get("gemini_api_key")
-        if gemini_api_key:
-            data["gemini_api_key"] = crypto.encrypt(gemini_api_key)
-
-        api_keys_dict = data.get("api_keys")
-        if isinstance(api_keys_dict, dict):
-            encrypted_keys = {}
-            for k, v in api_keys_dict.items():
-                if v:
-                    encrypted_keys[k] = crypto.encrypt(v)
-                else:
-                    encrypted_keys[k] = v
-            data["api_keys"] = encrypted_keys
-
+        encrypted_key = crypto.encrypt(api_key) if api_key else ""
+        data["api_key"] = encrypted_key
+            
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
 
     def run_job(
         self,
@@ -137,7 +121,7 @@ class TranslateService:
     ) -> TranslateResult:
         with self._lock:
             if self._active:
-                raise RuntimeError("Đang có tác vụ dịch chạy, vui lòng đợi hoàn tất.")
+                raise RuntimeError("Đang dịch, vui lòng đợi.")
             self._active = True
             self._stop_event = Event()
 
@@ -147,11 +131,12 @@ class TranslateService:
         output_path: Optional[Path] = None
 
         try:
+            save_user_output_dir(output_dir)
             self.save_config(
                 {
                     "provider": provider,
                     "model": model,
-                    "gemini_api_key": api_key,
+                    "api_key": api_key,
                     "target_language": target_language,
                     "content_safety": content_safety,
                 }
@@ -163,22 +148,11 @@ class TranslateService:
             chunks = chunk_segments(source_segments, batch_size=batch_size)
             output_path = build_output_path(input_srt, output_dir or DEFAULT_TRANSLATE_OUTPUT_DIR, target_language)
 
-            if provider != "gemini":
-                raise ValueError("Hiện tại chỉ hỗ trợ Gemini.")
             translator = GeminiTranslator(api_key=api_key, model=model)
 
             total_chunks = len(chunks)
-            total_input_chars_all = sum(sum(1 for c in segment.text if c.isalnum()) for segment in source_segments)
-            # print(f"[TRANSLATE] Bắt đầu dịch. Tổng số ký tự input của file (chỉ tính từ ngữ): {total_input_chars_all}")
 
-            text_models = [
-                "gemini-3.5-flash",
-                "gemini-3-flash",
-                "gemini-2.5-pro",
-                "gemini-2.5-flash-lite",
-                "gemini-2.5-flash",
-                "gemini-2.0-flash",
-            ]
+            text_models = self.get_model_options()
             fallback_models = [model]
             for m in text_models:
                 if m not in fallback_models:
@@ -191,15 +165,16 @@ class TranslateService:
                 
                 # Count input characters (only alphanumeric)
                 input_chars = sum(sum(1 for c in segment.text if c.isalnum()) for segment in chunk)
-                # print(f"[TRANSLATE] Cụm {chunk_index}/{total_chunks} - Trước khi gửi: {input_chars} ký tự input (chỉ tính từ ngữ)")
                 
                 max_retries = 5
                 retry_delay = 5.0
                 translated_texts = None
                 success = False
                 
-                for idx in range(current_model_index, len(fallback_models)):
-                    active_model = fallback_models[idx]
+                # Sắp xếp các model fallback theo thứ tự thử nghiệm (ưu tiên model hiện tại đang hoạt động tốt)
+                ordered_models = fallback_models[current_model_index:] + fallback_models[:current_model_index]
+                
+                for active_model in ordered_models:
                     translator.model = active_model
                     
                     for attempt in range(1, max_retries + 1):
@@ -219,76 +194,30 @@ class TranslateService:
                                 source_name=Path(input_srt).name,
                             )
                             success = True
-                            current_model_index = idx  # Save this model as the working one
-                            break  # Success, exit retry loop for active_model
+                            current_model_index = fallback_models.index(active_model)
+                            break
                         except Exception as exc:
-                            print(f"[TRANSLATE] Lỗi dịch cụm {chunk_index} với model {active_model} (Lần thử {attempt}/{max_retries}): {exc}")
+                            print(f"[TRANSLATE] {exc}")
                             if attempt < max_retries:
-                                # Notify UI of the error and waiting status
                                 self._emit(
                                     callbacks.on_progress,
                                     stage="translate",
-                                    message=f"Lỗi cụm {chunk_index} ({active_model} Lần {attempt} thất bại). Đang chờ {int(retry_delay)}s để thử lại...",
+                                    message=f"Lỗi cụm {chunk_index} ({active_model} Lần {attempt} thất bại). Thử lại sau {int(retry_delay)}s ...",
                                     percent=((chunk_index - 1) / total_chunks) * 100,
                                 )
-                                # Wait with interruptibility
                                 if self._stop_event.wait(retry_delay):
                                     raise RuntimeError("Đã dừng tác vụ dịch.")
                             else:
-                                print(f"[TRANSLATE] Model {active_model} thất bại hoàn toàn sau 5 lần thử.")
+                                print(f"[TRANSLATE] Model {active_model} thất bại.")
                     
                     if success:
-                        break  # Exit fallback models loop
+                        break
                     
                 if not success:
-                    # Try falling back starting from index 0 in case the working model failed but we skipped earlier models
-                    if current_model_index > 0:
-                        # print(f"[TRANSLATE] Thử lại các model fallback từ đầu danh sách...")
-                        for idx in range(0, current_model_index):
-                            active_model = fallback_models[idx]
-                            translator.model = active_model
-                            
-                            for attempt in range(1, max_retries + 1):
-                                try:
-                                    self._check_stop()
-                                    self._emit(
-                                        callbacks.on_progress,
-                                        stage="translate",
-                                        message=f"Đang dịch cụm {chunk_index}/{total_chunks} (Model: {active_model}, Lần thử {attempt}/{max_retries}, Input: {input_chars} ký tự)...",
-                                        percent=((chunk_index - 1) / total_chunks) * 100,
-                                    )
-                                    translated_texts = translator.translate_segments(
-                                        segments=chunk,
-                                        all_segments=source_segments,
-                                        target_language=target_language,
-                                        content_safety=content_safety,
-                                        source_name=Path(input_srt).name,
-                                    )
-                                    success = True
-                                    current_model_index = idx  # Save this model as the working one
-                                    break
-                                except Exception as exc:
-                                    print(f"[TRANSLATE] Lỗi dịch cụm {chunk_index} với model {active_model} (Lần thử {attempt}/{max_retries}): {exc}")
-                                    if attempt < max_retries:
-                                        self._emit(
-                                            callbacks.on_progress,
-                                            stage="translate",
-                                            message=f"Lỗi cụm {chunk_index} ({active_model} Lần {attempt} thất bại). Đang chờ {int(retry_delay)}s để thử lại...",
-                                            percent=((chunk_index - 1) / total_chunks) * 100,
-                                        )
-                                        if self._stop_event.wait(retry_delay):
-                                            raise RuntimeError("Đã dừng tác vụ dịch.")
-                                    else:
-                                        print(f"[TRANSLATE] Model {active_model} thất bại hoàn toàn sau 5 lần thử.")
-                            if success:
-                                break
-                    
-                if not success:
-                    raise RuntimeError(f"Tất cả các model fallback đều thất bại tại cụm {chunk_index}.")
+                    raise RuntimeError(f"Tất cả model đều thất bại tại cụm {chunk_index}.")
                 
                 # Count output characters (only alphanumeric)
                 output_chars = sum(sum(1 for c in text if c.isalnum()) for text in translated_texts)
-                # print(f"[TRANSLATE] Cụm {chunk_index}/{total_chunks} - Sau khi xong: {output_chars} ký tự output (chỉ tính từ ngữ)")
                 
                 translated_chunk = [
                     SrtSegment(
@@ -305,12 +234,9 @@ class TranslateService:
                 self._emit(
                     callbacks.on_progress,
                     stage="translate",
-                    message=f"Đã dịch {len(translated_segments)}/{len(source_segments)} dòng. (Cụm {chunk_index} Output: {output_chars} ký tự)",
+                    message=f"Đã dịch {len(translated_segments)}/{len(source_segments)} dòng.",
                     percent=(chunk_index / total_chunks) * 100,
                 )
-
-            total_output_chars_all = sum(sum(1 for c in segment.text if c.isalnum()) for segment in translated_segments)
-            # print(f"[TRANSLATE] Dịch hoàn tất. Tổng số ký tự output của file (chỉ tính từ ngữ): {total_output_chars_all}")
 
             output_path.write_text(serialize_srt(translated_segments), encoding="utf-8")
 

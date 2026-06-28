@@ -4,11 +4,6 @@ from infrastructure.providers.tts.edge_tts_provider import EdgeTTSProvider
 from infrastructure.providers.tts.gemini_tts_provider import GeminiTTSProvider
 from infrastructure.providers.tts.capcut_provider import CapCutTTSProvider
 from infrastructure.providers.tts.models import (
-    DEFAULT_TTS_OUTPUT_DIR,
-    DEFAULT_TTS_PROVIDER,
-    GEMINI_TTS_MODEL,
-    GEMINI_VOICES,
-    LANGUAGE_OPTIONS,
     GeneratedSegment,
     TtsProgress,
     TtsResult,
@@ -32,11 +27,6 @@ __all__ = [
     "GeminiTTSProvider",
     "CapCutTTSProvider",
     "compose_timeline",
-    "DEFAULT_TTS_OUTPUT_DIR",
-    "DEFAULT_TTS_PROVIDER",
-    "GEMINI_TTS_MODEL",
-    "GEMINI_VOICES",
-    "LANGUAGE_OPTIONS",
     "GeneratedSegment",
     "TtsProgress",
     "TtsResult",

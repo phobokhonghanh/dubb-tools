@@ -12,6 +12,7 @@ import flet as ft
 from app.features.base import BaseFeatureView
 from core.use_cases.video_splitter_service import VideoSplitterCallbacks, VideoSplitterService
 from utils.video_splitter import DEFAULT_OUTPUT_DIR, SUPPORTED_VIDEO_EXTENSIONS, VideoSplitProgress, VideoSplitResult
+from constants import DEFAULT_OUTPUT_DIR
 
 
 CARD_BG = "#1E1E1E"
@@ -409,7 +410,7 @@ class VideoSplitterView(BaseFeatureView):
                             spacing=12,
                             controls=[
                                 ft.Row([input_path_field, choose_input_button], spacing=12),
-                                ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12),
+                                ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12, visible=False),
                                 ft.Row([process_button, open_folder_button], spacing=12),
                             ],
                         ),

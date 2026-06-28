@@ -7,7 +7,8 @@ from google import genai
 from google.genai import types
 
 from core.ports.translator import BaseTranslator
-from infrastructure.providers.translator.models import LANGUAGE_OPTIONS, SrtSegment
+from constants import LANGUAGE_OPTIONS
+from infrastructure.providers.translator.models import SrtSegment
 from infrastructure.providers.translator.srt import total_duration_sec
 
 
@@ -34,11 +35,11 @@ class GeminiTranslator(BaseTranslator):
             content_safety=content_safety,
             source_name=source_name,
         )
-        try:
-            with open("debug.txt", "w", encoding="utf-8") as f:
-                f.write(prompt)
-        except Exception as err:
-            print(f"[DEBUG] Lỗi ghi debug.txt: {err}")
+        # try:
+        #     with open("debug.txt", "w", encoding="utf-8") as f:
+        #         f.write(prompt)
+        # except Exception as err:
+        #     print(f"[DEBUG] Lỗi ghi debug.txt: {err}")
 
         config = types.GenerateContentConfig(
             temperature=0.3,

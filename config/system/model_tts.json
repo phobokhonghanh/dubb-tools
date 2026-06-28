@@ -1,0 +1,64 @@
+[
+  {
+    "provider": "edge-tts",
+    "voices": [
+      {
+        "name": "vi-VN-NamMinhNeural",
+        "default": true
+      },
+      {
+        "name": "vi-VN-HoaiMyNeural",
+        "default": false
+      }
+    ],
+    "default": false
+  },
+  {
+    "provider": "gemini-tts",
+    "voices": [
+      {
+        "name": "Orus",
+        "default": true
+      },
+      {
+        "name": "Zephyr",
+        "default": false
+      },
+      {
+        "name": "Puck",
+        "default": false
+      },
+      {
+        "name": "Charon",
+        "default": false
+      },
+      {
+        "name": "Kore",
+        "default": false
+      },
+      {
+        "name": "Fenrir",
+        "default": false
+      },
+      {
+        "name": "Leda",
+        "default": false
+      },
+      {
+        "name": "Aoede",
+        "default": false
+      }
+    ],
+    "default": false
+  },
+  {
+    "provider": "capcut",
+    "voices": [
+      {
+        "name": "7102355709945188865",
+        "default": true
+      }
+    ],
+    "default": true
+  }
+]

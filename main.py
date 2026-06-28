@@ -70,6 +70,9 @@ def main(page: ft.Page) -> None:
         retry_button.visible = True
         status_text.value = "Không thể khởi động ứng dụng"
         detail_text.value = message
+        if loading_view not in page.controls:
+            page.controls.clear()
+            page.add(loading_view)
         request_refresh()
 
     def bootstrap() -> None:
@@ -85,6 +88,8 @@ def main(page: ft.Page) -> None:
                 return
             show_app()
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             show_error(f"Lỗi khi chuẩn bị pyvideotrans: {exc}")
 
     retry_button.on_click = lambda _: page.run_thread(bootstrap)

@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from core.use_cases.tts_service import TtsCallbacks, TtsService
-from infrastructure.providers.tts import DEFAULT_TTS_OUTPUT_DIR, DEFAULT_TTS_PROVIDER, TtsProgress, TtsResult
+from constants import DEFAULT_TTS_OUTPUT_DIR, DEFAULT_TTS_PROVIDER, save_user_output_dir
+from infrastructure.providers.tts import TtsProgress, TtsResult
 
 if TYPE_CHECKING:
     pass
@@ -20,8 +21,15 @@ class TtsPresenter:
         config = self.service.load_config()
         self.view.provider = str(config.get("provider") or DEFAULT_TTS_PROVIDER)
         self.view.language = str(config.get("language") or "vi")
-        self.view.voice_ids = dict(config.get("voice_ids") or {})
-        self.view.voice_id = str(self.view.voice_ids.get(self.view.provider) or "")
+        self.view.voice_ids = {}
+        self.view.voice_id = str(config.get("voice_id") or "")
+        if self.view.voice_id:
+            self.view.voice_ids[self.view.provider] = self.view.voice_id
+        
+        from constants.tts import DEFAULT_VOICE_IDS
+        for p, v in DEFAULT_VOICE_IDS.items():
+            if p not in self.view.voice_ids:
+                self.view.voice_ids[p] = v
         self.view.rate = int(config.get("rate") or 0)
         self.view.volume = int(config.get("volume") or 0)
         self.view.pitch = int(config.get("pitch") or 0)
@@ -30,6 +38,7 @@ class TtsPresenter:
         self.view.max_workers = int(config.get("max_workers") or 5)
         self.view.input_mode = str(config.get("input_mode") or "file")
         self.view.input_text = str(config.get("input_text") or "")
+        self.view.output_dir = str(config.get("output_dir") or DEFAULT_TTS_OUTPUT_DIR)
         if not self.view.auto_merge:
             self.view.keep_segments = True
         
@@ -178,11 +187,13 @@ class TtsPresenter:
     def handle_output_dir_selected(self, picked_dir: str) -> None:
         self.view.output_dir = picked_dir
         self.view.status_text = ""
+        save_user_output_dir(self.view.output_dir)
         self.view.refresh()
 
     def handle_reset_output_dir(self) -> None:
-        self.view.output_dir = str(DEFAULT_TTS_OUTPUT_DIR)
+        self.view.output_dir = "resources/layer/process"
         self.view.status_text = ""
+        save_user_output_dir(self.view.output_dir)
         self.view.refresh()
 
     def handle_input_mode_change(self, input_mode: str) -> None:

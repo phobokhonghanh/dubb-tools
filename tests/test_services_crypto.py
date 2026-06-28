@@ -3,72 +3,86 @@ from pathlib import Path
 import pytest
 from core.use_cases.tts_service import TtsService
 from core.use_cases.translate_service import TranslateService
+from core.use_cases.pipeline_service import PipelineService
 
 def test_tts_service_config_encryption(tmp_path):
-    """Kiểm tra mã hóa/giải mã API key của TtsService."""
-    config_file = tmp_path / "tts_config.json"
+    """Kiểm tra mã hóa/giải mã API keys của TtsService trực tiếp thông qua cf_tts.json."""
+    config_file = tmp_path / "cf_tts.json"
     service = TtsService(config_path=config_file)
     
-    # 1. Trường hợp tương thích ngược: file config lưu key dạng thô (cleartext)
+    # 1. Lưu cấu hình với api_keys dạng thô (cleartext)
     raw_config = {
         "provider": "gemini-tts",
         "api_keys": {
             "gemini-tts": "my-plain-gemini-tts-key"
         }
     }
-    config_file.write_text(json.dumps(raw_config), encoding="utf-8")
+    service.save_config(raw_config)
     
-    # Đọc cấu hình -> Key phải khớp chính xác
+    # File cf_tts.json phải được tạo ra và lưu giá trị mã hóa
+    assert config_file.exists()
+    raw_file_content = json.loads(config_file.read_text(encoding="utf-8"))
+    
+    # Kiểm tra rằng key trong file đã được mã hóa (bắt đầu bằng gAAAAA) và không ở dạng cleartext
+    models = raw_file_content["model"]
+    gemini_model = next(item for item in models if item["provider"] == "gemini-tts")
+    encrypted_val = gemini_model["key"]
+    assert encrypted_val != "my-plain-gemini-tts-key"
+    assert encrypted_val.startswith("gAAAAA")
+    
+    # 2. Đọc lại từ cấu hình -> Phải giải mã tự động
     loaded = service.load_config()
     assert loaded["api_keys"]["gemini-tts"] == "my-plain-gemini-tts-key"
-    
-    # 2. Ghi cấu hình -> Key ghi xuống file phải được mã hóa
-    service.save_config(loaded)
-    
-    # Đọc file thô từ đĩa
-    raw_file_content = json.loads(config_file.read_text(encoding="utf-8"))
-    encrypted_val = raw_file_content["api_keys"]["gemini-tts"]
-    assert encrypted_val != "my-plain-gemini-tts-key"
-    assert encrypted_val.startswith("gAAAAA")  # Định dạng token Fernet mặc định
-    
-    # 3. Đọc lại từ cấu hình đã mã hóa -> Phải giải mã tự động
-    service2 = TtsService(config_path=config_file)
-    loaded2 = service2.load_config()
-    assert loaded2["api_keys"]["gemini-tts"] == "my-plain-gemini-tts-key"
 
 
-def test_translate_service_config_encryption(tmp_path):
-    """Kiểm tra mã hóa/giải mã API key của TranslateService."""
-    config_file = tmp_path / "translator_config.json"
+def test_translator_service_config_encryption(tmp_path):
+    """Kiểm tra mã hóa/giải mã API key của TranslateService thông qua cf_translators.json."""
+    config_file = tmp_path / "cf_translators.json"
     service = TranslateService(config_path=config_file)
     
-    # 1. Tương thích ngược: file chứa api key dạng thô
-    raw_config = {
-        "provider": "gemini",
-        "gemini_api_key": "my-plain-gemini-key",
-        "api_keys": {
-            "gemini-2.0-flash": "another-plain-key"
-        }
-    }
-    config_file.write_text(json.dumps(raw_config), encoding="utf-8")
+    default_cfg = service.default_config()
+    assert default_cfg["api_key"] == ""
     
-    # Đọc cấu hình -> Phải giải mã
+    # Lưu cấu hình với api_key dạng thô
+    cfg = service.default_config()
+    cfg["api_key"] = "my-plain-gemini-key"
+    service.save_config(cfg)
+    
+    # File cf_translators.json phải lưu key mã hóa
+    assert config_file.exists()
+    raw_cf = json.loads(config_file.read_text(encoding="utf-8"))
+    assert raw_cf["api_key"] != "my-plain-gemini-key"
+    assert raw_cf["api_key"].startswith("gAAAAA")
+    
+    # Đọc cấu hình -> Phải giải mã tự động
     loaded = service.load_config()
-    assert loaded["gemini_api_key"] == "my-plain-gemini-key"
-    assert loaded["api_keys"]["gemini-2.0-flash"] == "another-plain-key"
+    assert loaded["api_key"] == "my-plain-gemini-key"
+
+
+def test_pipeline_service_config_encryption(tmp_path):
+    """Kiểm tra mã hóa/giải mã API keys của PipelineService trực tiếp trong pipeline_config.json."""
+    config_file = tmp_path / "pipeline_config.json"
+    service = PipelineService(config_path=config_file)
+
+    # Ghi cấu hình dạng thô
+    raw_config = {
+        "source_mode": "local_video",
+        "translate_api_key": "new-translate-key",
+        "tts_api_key": "new-tts-key"
+    }
+    service.save_config(raw_config)
+
+    # File pipeline_config.json phải lưu khóa dưới dạng mã hóa
+    assert config_file.exists()
+    raw_config_after_save = json.loads(config_file.read_text(encoding="utf-8"))
     
-    # 2. Ghi cấu hình -> Phải mã hóa tự động
-    service.save_config(loaded)
-    
-    # Đọc file thô từ đĩa
-    raw_file_content = json.loads(config_file.read_text(encoding="utf-8"))
-    assert raw_file_content["gemini_api_key"] != "my-plain-gemini-key"
-    assert raw_file_content["gemini_api_key"].startswith("gAAAAA")
-    assert raw_file_content["api_keys"]["gemini-2.0-flash"] != "another-plain-key"
-    assert raw_file_content["api_keys"]["gemini-2.0-flash"].startswith("gAAAAA")
-    
-    # 3. Đọc lại cấu hình đã mã hóa -> Tự động giải mã
-    service2 = TranslateService(config_path=config_file)
+    assert raw_config_after_save["translate_api_key"] != "new-translate-key"
+    assert raw_config_after_save["translate_api_key"].startswith("gAAAAA")
+    assert raw_config_after_save["tts_api_key"] != "new-tts-key"
+    assert raw_config_after_save["tts_api_key"].startswith("gAAAAA")
+
+    # Đọc lại cấu hình -> Tự động giải mã thành công
+    service2 = PipelineService(config_path=config_file)
     loaded2 = service2.load_config()
-    assert loaded2["gemini_api_key"] == "my-plain-gemini-key"
-    assert loaded2["api_keys"]["gemini-2.0-flash"] == "another-plain-key"
+    assert loaded2["translate_api_key"] == "new-translate-key"
+    assert loaded2["tts_api_key"] == "new-tts-key"

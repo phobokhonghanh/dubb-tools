@@ -16,7 +16,7 @@ from utils.video_merger import (
 )
 
 
-CONFIG_PATH = Paths.get_config_path("merger_config.json")
+CONFIG_PATH = Paths.CONFIG_DIR / "user" / "merger_config.json"
 
 
 @dataclass

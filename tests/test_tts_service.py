@@ -13,7 +13,7 @@ def test_tts_service_run_job_text_mode(
     mock_concat, mock_silence, mock_get_duration, mock_factory, mock_require_ffmpeg, tmp_path
 ):
     # Setup paths
-    config_file = tmp_path / "tts_config.json"
+    config_file = tmp_path / "cf_tts.json"
     output_dir = tmp_path / "output"
     
     # Mock behavior
@@ -60,7 +60,7 @@ def test_tts_service_run_job_text_mode(
 def test_tts_service_run_job_with_segment_error(
     mock_get_duration, mock_factory, mock_require_ffmpeg, tmp_path
 ):
-    config_file = tmp_path / "tts_config.json"
+    config_file = tmp_path / "cf_tts.json"
     output_dir = tmp_path / "output"
     
     mock_get_duration.return_value = 2.0

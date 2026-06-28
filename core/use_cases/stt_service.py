@@ -38,12 +38,14 @@ class SttService:
     ) -> SttResult:
         with self._lock:
             if self._active:
-                raise RuntimeError("Đang có tác vụ nhận diện chạy, vui lòng đợi hoàn tất.")
+                raise RuntimeError("Đang nhận diện giọng nói, vui lòng đợi.")
             self._active = True
             self._stop_event = Event()
 
         callbacks = callbacks or SttCallbacks()
         try:
+            from constants import save_user_output_dir
+            save_user_output_dir(output_dir)
             result = transcribe_audio(
                 audio_path=audio_path,
                 model_size=model_size,

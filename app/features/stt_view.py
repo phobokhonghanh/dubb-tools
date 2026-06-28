@@ -11,8 +11,8 @@ import flet as ft
 
 from app.features.base import BaseFeatureView
 from core.use_cases.stt_service import SttCallbacks, SttService
+from constants import DEFAULT_OUTPUT_DIR
 from utils.stt_processor import (
-    DEFAULT_STT_OUTPUT_DIR,
     SUPPORTED_AUDIO_EXTENSIONS,
     SttProgress,
     SttResult,
@@ -135,7 +135,7 @@ class SttView(BaseFeatureView):
     def __init__(self) -> None:
         self.service = SttService()
         self._audio_path: str = ""
-        self._output_dir: str = str(DEFAULT_STT_OUTPUT_DIR)
+        self._output_dir: str = str(DEFAULT_OUTPUT_DIR)
         self._speaker_mode: str = SPEAKER_OPTIONS[0]
         self._model_size: str = "base"
         self._language: str = "auto"
@@ -155,11 +155,11 @@ class SttView(BaseFeatureView):
         self._save_button_visible: bool = False
         self._controls: dict[str, ft.Control] = {}
         self._page: Optional[ft.Page] = None
-
+ 
     def _maybe_prefill_latest_vocals(self) -> None:
         if self._audio_path:
             return
-        latest = find_latest_vocals(DEFAULT_STT_OUTPUT_DIR)
+        latest = find_latest_vocals(DEFAULT_OUTPUT_DIR)
         if latest:
             self._audio_path = str(latest)
             self._current_file_text = latest.name
@@ -314,7 +314,7 @@ class SttView(BaseFeatureView):
         result_list = ft.ListView(
             controls=self._build_result_rows(),
             spacing=8,
-            height=300,
+            height=480,
             auto_scroll=False,
         )
         line_count_text = ft.Text(self._line_count_text, color=ft.Colors.BLUE_GREY_100)
@@ -417,7 +417,7 @@ class SttView(BaseFeatureView):
             request_ui_refresh()
 
         def choose_audio(_: ft.ControlEvent) -> None:
-            start_dir = str(Path(self._audio_path).parent) if self._audio_path else str(DEFAULT_STT_OUTPUT_DIR)
+            start_dir = str(Path(self._audio_path).parent) if self._audio_path else str(DEFAULT_OUTPUT_DIR)
             picked = pick_audio_file_native(start_dir)
             if not picked:
                 return
@@ -432,7 +432,7 @@ class SttView(BaseFeatureView):
             request_ui_refresh()
 
         def choose_output(_: ft.ControlEvent) -> None:
-            picked = pick_directory_native(self._output_dir or str(DEFAULT_STT_OUTPUT_DIR))
+            picked = pick_directory_native(self._output_dir or str(DEFAULT_OUTPUT_DIR))
             if not picked:
                 return
             self._output_dir = picked
@@ -440,7 +440,7 @@ class SttView(BaseFeatureView):
             request_ui_refresh()
 
         def reset_output(_: ft.ControlEvent) -> None:
-            self._output_dir = str(DEFAULT_STT_OUTPUT_DIR)
+            self._output_dir = str(DEFAULT_OUTPUT_DIR)
             self._status_text = ""
             request_ui_refresh()
 
@@ -609,7 +609,7 @@ class SttView(BaseFeatureView):
                             spacing=12,
                             controls=[
                                 ft.Row([audio_path_field, choose_audio_button], spacing=12),
-                                ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12),
+                                ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12, visible=False),
                                 ft.Row(
                                     [
                                         speaker_dropdown,
@@ -638,7 +638,13 @@ class SttView(BaseFeatureView):
                                         line_count_text,
                                     ]
                                 ),
-                                result_list,
+                                ft.Container(
+                                    content=result_list,
+                                    border=ft.Border.all(1, "#333333"),
+                                    border_radius=8,
+                                    padding=8,
+                                    bgcolor=SURFACE_BG,
+                                ),
                                 ft.Row(
                                     [
                                         group_size_field,

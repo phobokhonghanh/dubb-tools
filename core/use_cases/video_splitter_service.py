@@ -36,15 +36,19 @@ class VideoSplitterService:
     ) -> VideoSplitResult:
         with self._lock:
             if self._active:
-                raise RuntimeError("Đang có một tác vụ xử lý video chạy, vui lòng đợi hoàn tất.")
+                raise RuntimeError("Đang cắt, vui lòng đợi.")
             self._active = True
             self._stop_event = Event()
 
         callbacks = callbacks or VideoSplitterCallbacks()
         try:
+            from constants import save_user_output_dir, DEFAULT_OUTPUT_DIR
+            save_user_output_dir(output_dir)
+            resolved_output_dir = output_dir or str(DEFAULT_OUTPUT_DIR)
+            
             return split_video_audio(
                 video_path=video_path,
-                output_dir=output_dir,
+                output_dir=resolved_output_dir,
                 on_progress=callbacks.on_progress,
                 on_success=callbacks.on_success,
                 on_error=callbacks.on_error,

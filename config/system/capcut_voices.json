@@ -1,0 +1,1018 @@
+[
+  {
+    "id": "7597890302053010704",
+    "name": "Agenting",
+    "locale": "es-ES",
+    "gender": "Male",
+    "speaker": "DiT_es_male_agenting",
+    "resource_id": "7597890302053010704"
+  },
+  {
+    "id": "7483736167565758992",
+    "name": "Alex Đại Đế",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "BV560_streaming",
+    "resource_id": "7483736167565758992"
+  },
+  {
+    "id": "6898240012404396546",
+    "name": "American Female",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "BV029_streaming",
+    "resource_id": "6898240012404396546"
+  },
+  {
+    "id": "7393228944540963344",
+    "name": "Artist",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_female_nail_artist",
+    "resource_id": "7393228944540963344"
+  },
+  {
+    "id": "7637456432522218773",
+    "name": "Ban Mai",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "multi_female_yangguangnv_uranus_bigtts",
+    "resource_id": "7637456432522218773"
+  },
+  {
+    "id": "7427072447129588225",
+    "name": "Bluetooth",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "ICL_en_female_cc_bluetooth",
+    "resource_id": "7427072447129588225"
+  },
+  {
+    "id": "7501615796456526352",
+    "name": "BrianJW",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "ICL_en_male_317M_BrianJW",
+    "resource_id": "7501615796456526352"
+  },
+  {
+    "id": "7637455857285860629",
+    "name": "Bản Tin nữ",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "multi_female_sisi_uranus_bigtts",
+    "resource_id": "7637455857285860629"
+  },
+  {
+    "id": "7510080106199665937",
+    "name": "Captain",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "ICL_en_male_captain",
+    "resource_id": "7510080106199665937"
+  },
+  {
+    "id": "7114563482359435778",
+    "name": "Chrming Male",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "en_us_010",
+    "resource_id": "7114563482359435778"
+  },
+  {
+    "id": "7245192458206712322",
+    "name": "Classical Music",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_male_m03_classical",
+    "resource_id": "7245192458206712322"
+  },
+  {
+    "id": "7501618011829178896",
+    "name": "Contra",
+    "locale": "pt-BR",
+    "gender": "Male",
+    "speaker": "ICL_br_male_212M_LuizS",
+    "resource_id": "7501618011829178896"
+  },
+  {
+    "id": "7572089965652315393",
+    "name": "Creepy female",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "ICL_en_female_ditie_dsp",
+    "resource_id": "7572089965652315393"
+  },
+  {
+    "id": "7081168994673103362",
+    "name": "Cute Boy",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "BV507_streaming",
+    "resource_id": "7081168994673103362"
+  },
+  {
+    "id": "7605129105306111233",
+    "name": "Cute Girl",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "ICL_en_female_little_cute_dsp",
+    "resource_id": "7605129105306111233"
+  },
+  {
+    "id": "7102355709945188865",
+    "name": "Cô Gái Hoạt Ngôn",
+    "locale": "vi-VN",
+    "gender": "Female",
+    "speaker": "BV074_streaming",
+    "resource_id": "7102355709945188865"
+  },
+  {
+    "id": "7501234865447113233",
+    "name": "Daiana",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "multi_female_wenjingmaomao_moon_bigtts_cc",
+    "resource_id": "7501234865447113233"
+  },
+  {
+    "id": "7527814111502077201",
+    "name": "Dashu",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_jp_male_dashu",
+    "resource_id": "7527814111502077201"
+  },
+  {
+    "id": "7231025912261644802",
+    "name": "Deadpool",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_male_deadpool",
+    "resource_id": "7231025912261644802"
+  },
+  {
+    "id": "7605123605034208513",
+    "name": "Deep God",
+    "locale": "id-ID",
+    "gender": "Male",
+    "speaker": "ICL_id_male_deep_god_dsp",
+    "resource_id": "7605123605034208513"
+  },
+  {
+    "id": "7477925128651674113",
+    "name": "Desti",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "BV540_streaming",
+    "resource_id": "7477925128651674113"
+  },
+  {
+    "id": "7568807675337723137",
+    "name": "Diablomalo",
+    "locale": "es-ES",
+    "gender": "Male",
+    "speaker": "ICL_es_male_emo",
+    "resource_id": "7568807675337723137"
+  },
+  {
+    "id": "7519722328935140624",
+    "name": "Dolly famle",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "en_us_002_dsp",
+    "resource_id": "7519722328935140624"
+  },
+  {
+    "id": "7573961077009042689",
+    "name": "Douce",
+    "locale": "fr-FR",
+    "gender": "Male",
+    "speaker": "DiT_fr_female_soothing",
+    "resource_id": "7573961077009042689"
+  },
+  {
+    "id": "733719524381032",
+    "name": "Dramaaa",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_male_dramaqueen_zachk",
+    "resource_id": "733719524381032"
+  },
+  {
+    "id": "7372474337594446337",
+    "name": "Dramaaa",
+    "locale": "zh-CN",
+    "gender": "Female",
+    "speaker": "BV213_streaming",
+    "resource_id": "7372474337594446337"
+  },
+  {
+    "id": "7491608109043945985",
+    "name": "Duy Bắc",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "1d5Bb0SMBPB10Gx6iQeu",
+    "resource_id": "7491608109043945985"
+  },
+  {
+    "id": "7130515992936976897",
+    "name": "EN US",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "en_us_002",
+    "resource_id": "7130515992936976897"
+  },
+  {
+    "id": "7114563482518819329",
+    "name": "EN US 2",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "en_us_006",
+    "resource_id": "7114563482518819329"
+  },
+  {
+    "id": "7501616889173381633",
+    "name": "EdgarRu",
+    "locale": "es-ES",
+    "gender": "Male",
+    "speaker": "ICL_es_male_tt_EdgarRu",
+    "resource_id": "7501616889173381633"
+  },
+  {
+    "id": "7114563483257016833",
+    "name": "Emotional",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_female_emotional_moon_bigtts",
+    "resource_id": "7114563483257016833"
+  },
+  {
+    "id": "7576131970103643408",
+    "name": "Empresário Frio",
+    "locale": "pt-BR",
+    "gender": "Male",
+    "speaker": "DiT_pt_male_shangren",
+    "resource_id": "7576131970103643408"
+  },
+  {
+    "id": "7081168775646548482",
+    "name": "Energetic Famale",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "BV503_streaming",
+    "resource_id": "7081168775646548482"
+  },
+  {
+    "id": "7081169180120060418",
+    "name": "English",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "BV510_streaming",
+    "resource_id": "7081169180120060418"
+  },
+  {
+    "id": "7232136837861478913",
+    "name": "Excited",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_female_caroline_clone2",
+    "resource_id": "7232136837861478913"
+  },
+  {
+    "id": "7598080655146192144",
+    "name": "Female Bilunv",
+    "locale": "es-ES",
+    "gender": "Male",
+    "speaker": "DiT_es_female_bilunv",
+    "resource_id": "7598080655146192144"
+  },
+  {
+    "id": "7526754143369760016",
+    "name": "Female Teacher",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_female_soothing_mars_bigtts",
+    "resource_id": "7526754143369760016"
+  },
+  {
+    "id": "7550087831092251920",
+    "name": "Giọng Bé",
+    "locale": "vi-VN",
+    "gender": "Female",
+    "speaker": "BV074_streaming_dsp",
+    "resource_id": "7550087831092251920"
+  },
+  {
+    "id": "7637458789033151751",
+    "name": "Giọng Gái Mới Lớn",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "multi_female_peiqi_uranus_bigtts",
+    "resource_id": "7637458789033151751"
+  },
+  {
+    "id": "7637456729696996628",
+    "name": "Giọng Nam Trầm ",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "multi_male_felipe_uranus_bigtts",
+    "resource_id": "7637456729696996628"
+  },
+  {
+    "id": "7264854897953083905",
+    "name": "Giọng Nữ Phổ Thông",
+    "locale": "vi-VN",
+    "gender": "Female",
+    "speaker": "vi_female_huong",
+    "resource_id": "7264854897953083905"
+  },
+  {
+    "id": "7372472588859085313",
+    "name": "Grim Rock",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_male_death_rock",
+    "resource_id": "7372472588859085313"
+  },
+  {
+    "id": "7473014336223449616",
+    "name": "Guaiqiaogirl",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "zh_female_guaiqiaogirl",
+    "resource_id": "7473014336223449616"
+  },
+  {
+    "id": "7469006620379320848",
+    "name": "Hantuperempuan",
+    "locale": "id-ID",
+    "gender": "Male",
+    "speaker": "ICL_id_female_hantuperempuan",
+    "resource_id": "7469006620379320848"
+  },
+  {
+    "id": "749455601346334",
+    "name": "Hatunemiku",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_jp_female_hatunemiku",
+    "resource_id": "749455601346334"
+  },
+  {
+    "id": "7371666434650280464",
+    "name": "Hoai My",
+    "locale": "vi-VN",
+    "gender": "Female",
+    "speaker": "vi-VN-HoaiMyNeural",
+    "resource_id": "7371666434650280464"
+  },
+  {
+    "id": "7491607926562361857",
+    "name": "Hà Nữ",
+    "locale": "vi-VN",
+    "gender": "Female",
+    "speaker": "pGapy9MNHCukzJtjavF0",
+    "resource_id": "7491607926562361857"
+  },
+  {
+    "id": "7538652405005700369",
+    "name": "Janeamber",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_female_janeamber_mars_bigtts",
+    "resource_id": "7538652405005700369"
+  },
+  {
+    "id": "7569439521352338689",
+    "name": "Jenny",
+    "locale": "th-TH",
+    "gender": "Female",
+    "speaker": "en-US-JennyMultilingualNeural",
+    "resource_id": "7569439521352338689"
+  },
+  {
+    "id": "7564325260414160129",
+    "name": "Jessie",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "DiT_en_female_jessie",
+    "resource_id": "7564325260414160129"
+  },
+  {
+    "id": "7501615396093432337",
+    "name": "Kai",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "ICL_en_male_310M_CoreyK",
+    "resource_id": "7501615396093432337"
+  },
+  {
+    "id": "7569442422665661712",
+    "name": "Kenny Đại Đế",
+    "locale": "vi-VN",
+    "gender": "Female",
+    "speaker": "BV075_streaming_demon_dsp",
+    "resource_id": "7569442422665661712"
+  },
+  {
+    "id": "7584344912276114704",
+    "name": "Koubo",
+    "locale": "de-DE",
+    "gender": "Male",
+    "speaker": "DiT_de_male_koubo",
+    "resource_id": "7584344912276114704"
+  },
+  {
+    "id": "7568807534438468865",
+    "name": "Lavana",
+    "locale": "es-ES",
+    "gender": "Male",
+    "speaker": "ICL_es_male_shenchen",
+    "resource_id": "7568807534438468865"
+  },
+  {
+    "id": "75016171499039011",
+    "name": "Lina",
+    "locale": "es-ES",
+    "gender": "Male",
+    "speaker": "ICL_es_female_tt_RosaW",
+    "resource_id": "75016171499039011"
+  },
+  {
+    "id": "7491194157852004881",
+    "name": "Lisa",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "ICL_en_female_lisa",
+    "resource_id": "7491194157852004881"
+  },
+  {
+    "id": "7579078759446285584",
+    "name": "Lovely Idol",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_female_zhiyu",
+    "resource_id": "7579078759446285584"
+  },
+  {
+    "id": "7491608014181372417",
+    "name": "Ly Nam",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "7hsfEc7irDn6E8br0qfw",
+    "resource_id": "7491608014181372417"
+  },
+  {
+    "id": "7501616990008644113",
+    "name": "Lía",
+    "locale": "es-ES",
+    "gender": "Male",
+    "speaker": "ICL_es_female_tt_Vivi",
+    "resource_id": "7501616990008644113"
+  },
+  {
+    "id": "7483736254694035984",
+    "name": "Mai",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "BV562_streaming",
+    "resource_id": "7483736254694035984"
+  },
+  {
+    "id": "7554226531451833617",
+    "name": "Male China",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "zh_female_xiaonan_lv_clone2",
+    "resource_id": "7554226531451833617"
+  },
+  {
+    "id": "7337657863390630401",
+    "name": "Male Eng",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "en",
+    "resource_id": "7337657863390630401"
+  },
+  {
+    "id": "7568807473923099920",
+    "name": "Male Jiqiren ",
+    "locale": "es-ES",
+    "gender": "Male",
+    "speaker": "ICL_es_male_jiqiren",
+    "resource_id": "7568807473923099920"
+  },
+  {
+    "id": "7114563482472681986",
+    "name": "Male Profess",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "en_us_007",
+    "resource_id": "7114563482472681986"
+  },
+  {
+    "id": "7337195454980952577",
+    "name": "Mentor",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_male_artistic_layne",
+    "resource_id": "7337195454980952577"
+  },
+  {
+    "id": "7438551246824280592",
+    "name": "Mischief",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "ICL_en_male_kevin2",
+    "resource_id": "7438551246824280592"
+  },
+  {
+    "id": "7371666524727153168",
+    "name": "Nam Minh",
+    "locale": "vi-VN",
+    "gender": "Female",
+    "speaker": "vi-VN-NamMinhNeural",
+    "resource_id": "7371666524727153168"
+  },
+  {
+    "id": "7493478233703191041",
+    "name": "Nam Trầm",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "9EE00wK5qV6tPtpQIxvy",
+    "resource_id": "7493478233703191041"
+  },
+  {
+    "id": "7637455039719640327",
+    "name": "Nam bản tin",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "multi_female_xinwenjieshuo_uranus_bigtts",
+    "resource_id": "7637455039719640327"
+  },
+  {
+    "id": "7525722920161725712",
+    "name": "Narrator",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "ICL_en_male_philosopher_dsp",
+    "resource_id": "7525722920161725712"
+  },
+  {
+    "id": "7436607833887478289",
+    "name": "Naying",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "zh_female_naying",
+    "resource_id": "7436607833887478289"
+  },
+  {
+    "id": "7252594014782755330",
+    "name": "Nhỏ Ngọt Ngào",
+    "locale": "vi-VN",
+    "gender": "Female",
+    "speaker": "BV421_vivn_streaming",
+    "resource_id": "7252594014782755330"
+  },
+  {
+    "id": "7587328219989249296",
+    "name": "Nữ Cao",
+    "locale": "id-ID",
+    "gender": "Male",
+    "speaker": "id_female_icha_uranus_bigtts",
+    "resource_id": "7587328219989249296"
+  },
+  {
+    "id": "7438551608746578449",
+    "name": "Oogie",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "ICL_en_male_oogie2",
+    "resource_id": "7438551608746578449"
+  },
+  {
+    "id": "7637460417295469832",
+    "name": "Quên Tên Tự Test",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "multi_female_tianmeijieshuo_uranus_bigtts",
+    "resource_id": "7637460417295469832"
+  },
+  {
+    "id": "7573959040657591553",
+    "name": "Rap",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_male_rap",
+    "resource_id": "7573959040657591553"
+  },
+  {
+    "id": "7637458743197732117",
+    "name": "Review Phim 2",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "multi_female_xyf04auto_uranus_bigtts",
+    "resource_id": "7637458743197732117"
+  },
+  {
+    "id": "7637451983389019409",
+    "name": "Review Phim 3",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "multi_female_daqi_uranus_bigtts",
+    "resource_id": "7637451983389019409"
+  },
+  {
+    "id": "7637460351541447956",
+    "name": "Review Phim new",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "multi_female_richgirl_uranus_bigtts",
+    "resource_id": "7637460351541447956"
+  },
+  {
+    "id": "7501234950042030608",
+    "name": "Rizki",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "multi_zh_male_youyoujunzi_moon_bigtts_cc",
+    "resource_id": "7501234950042030608"
+  },
+  {
+    "id": "7360986396594541057",
+    "name": "Robaa",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_female_loba_apex",
+    "resource_id": "7360986396594541057"
+  },
+  {
+    "id": "7538698409633516816",
+    "name": "Robot VN",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "BV075_streaming_robot_dsp",
+    "resource_id": "7538698409633516816"
+  },
+  {
+    "id": "7584344912292760848",
+    "name": "Sanfte Führerin",
+    "locale": "de-DE",
+    "gender": "Male",
+    "speaker": "DiT_de_female_qingsong",
+    "resource_id": "7584344912292760848"
+  },
+  {
+    "id": "7597943534309690641",
+    "name": "Señor entusiasta",
+    "locale": "es-ES",
+    "gender": "Male",
+    "speaker": "DiT_es_male_bilunan",
+    "resource_id": "7597943534309690641"
+  },
+  {
+    "id": "7278146554844680706",
+    "name": "Sherry",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_female_sherry",
+    "resource_id": "7278146554844680706"
+  },
+  {
+    "id": "7028847457089884674",
+    "name": "Suaraaa",
+    "locale": "en-US",
+    "gender": "Female",
+    "speaker": "BV072_streaming",
+    "resource_id": "7028847457089884674"
+  },
+  {
+    "id": "7637457995882089749",
+    "name": "Sunny Idol",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "multi_female_kiwi_uranus_bigtts",
+    "resource_id": "7637457995882089749"
+  },
+  {
+    "id": "7491607853086544400",
+    "name": "Sài Nữ",
+    "locale": "vi-VN",
+    "gender": "Female",
+    "speaker": "xPEfmymXC4WdBxGMznS7",
+    "resource_id": "7491607853086544400"
+  },
+  {
+    "id": "7520150587619478801",
+    "name": "Tangsengdsp",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "zh_male_tangsengdsp",
+    "resource_id": "7520150587619478801"
+  },
+  {
+    "id": "7522976550736760065",
+    "name": "Tanhua",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_jp_female_tanhua",
+    "resource_id": "7522976550736760065"
+  },
+  {
+    "id": "7371666742055014913",
+    "name": "ThaiLand 3",
+    "locale": "th-TH",
+    "gender": "Female",
+    "speaker": "th",
+    "resource_id": "7371666742055014913"
+  },
+  {
+    "id": "7102355803792740865",
+    "name": "Thanh Niên Tự Tin",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "BV075_streaming",
+    "resource_id": "7102355803792740865"
+  },
+  {
+    "id": "7584344912292777232",
+    "name": "TieFE Dozen",
+    "locale": "de-DE",
+    "gender": "Male",
+    "speaker": "DiT_de_female_jiangshi",
+    "resource_id": "7584344912292777232"
+  },
+  {
+    "id": "7501615071068426768",
+    "name": "Tinn",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "ICL_en_male_305M_JamieTr",
+    "resource_id": "7501615071068426768"
+  },
+  {
+    "id": "7189462618589893121",
+    "name": "Trickster",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "en_male_trickster_stream",
+    "resource_id": "7189462618589893121"
+  },
+  {
+    "id": "7564317234814848273",
+    "name": "Trickster",
+    "locale": "en-US",
+    "gender": "Male",
+    "speaker": "DiT_en_male_trickster",
+    "resource_id": "7564317234814848273"
+  },
+  {
+    "id": "7491607775621943824",
+    "name": "Trung Caha",
+    "locale": "vi-VN",
+    "gender": "Male",
+    "speaker": "ueSxRO0nLF1bj93J2hVt",
+    "resource_id": "7491607775621943824"
+  },
+  {
+    "id": "7587328479071309073",
+    "name": "Uranus",
+    "locale": "id-ID",
+    "gender": "Male",
+    "speaker": "id_male_putra_uranus_bigtts",
+    "resource_id": "7587328479071309073"
+  },
+  {
+    "id": "7569450639810465040",
+    "name": "Việt Méo",
+    "locale": "vi-VN",
+    "gender": "Female",
+    "speaker": "BV075_streaming_vibrato_dsp",
+    "resource_id": "7569450639810465040"
+  },
+  {
+    "id": "7543766515837848833",
+    "name": "Vũ hán",
+    "locale": "zh-CN",
+    "gender": "Female",
+    "speaker": "BV452_streaming",
+    "resource_id": "7543766515837848833"
+  },
+  {
+    "id": "7576131428711255297",
+    "name": "Wenrou",
+    "locale": "pt-BR",
+    "gender": "Male",
+    "speaker": "DiT_pt_male_wenrou",
+    "resource_id": "7576131428711255297"
+  },
+  {
+    "id": "7573964692587023617",
+    "name": "Wit",
+    "locale": "fr-FR",
+    "gender": "Male",
+    "speaker": "DiT_fr_male_wit",
+    "resource_id": "7573964692587023617"
+  },
+  {
+    "id": "7564318793716059409",
+    "name": "XiaoChao",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "DiT_zh_male_xionger",
+    "resource_id": "7564318793716059409"
+  },
+  {
+    "id": "7543792542727425281",
+    "name": "Xiaoyue",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "zh_female_xiaoyue",
+    "resource_id": "7543792542727425281"
+  },
+  {
+    "id": "7522965008020540688",
+    "name": "Xinggan",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_male_xinggan",
+    "resource_id": "7522965008020540688"
+  },
+  {
+    "id": "752572180004351515",
+    "name": "Yangguang",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_jp_male_yangguang",
+    "resource_id": "752572180004351515"
+  },
+  {
+    "id": "7576144104547945729",
+    "name": "Youya",
+    "locale": "pt-BR",
+    "gender": "Male",
+    "speaker": "DiT_pt_female_youya",
+    "resource_id": "7576144104547945729"
+  },
+  {
+    "id": "7483453668117713425",
+    "name": "conversation",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "multi_male_M092_conversation_wvae_bigtts_cc",
+    "resource_id": "7483453668117713425"
+  },
+  {
+    "id": "7573955139086667009",
+    "name": "cute",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_male_cute",
+    "resource_id": "7573955139086667009"
+  },
+  {
+    "id": "7522976550736661761",
+    "name": "gaoxiao",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_male_gaoxiao",
+    "resource_id": "7522976550736661761"
+  },
+  {
+    "id": "7573956962279361809",
+    "name": "narrator",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_female_narrator",
+    "resource_id": "7573956962279361809"
+  },
+  {
+    "id": "7564296190074948865",
+    "name": "paoxiaoge",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "DiT_zh_male_paoxiaoge",
+    "resource_id": "7564296190074948865"
+  },
+  {
+    "id": "7573963007588371728",
+    "name": "sharp",
+    "locale": "fr-FR",
+    "gender": "Male",
+    "speaker": "DiT_fr_female_sharp",
+    "resource_id": "7573963007588371728"
+  },
+  {
+    "id": "7584702432115019009",
+    "name": "Ơaoxiao",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_male_paoxiao",
+    "resource_id": "7584702432115019009"
+  },
+  {
+    "id": "7569443462295178512",
+    "name": "สุนิสา",
+    "locale": "th-TH",
+    "gender": "Female",
+    "speaker": "multi_female_zendaya_uranus_bigtts",
+    "resource_id": "7569443462295178512"
+  },
+  {
+    "id": "7550069260152818960",
+    "name": "เด็กเสียง",
+    "locale": "th-TH",
+    "gender": "Female",
+    "speaker": "BV567_streaming_dsp",
+    "resource_id": "7550069260152818960"
+  },
+  {
+    "id": "7527837025815334161",
+    "name": "クールな青年",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_jp_male_wutiaowu",
+    "resource_id": "7527837025815334161"
+  },
+  {
+    "id": "7522976550736678145",
+    "name": "マネージャー",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_female_kuaizui02",
+    "resource_id": "7522976550736678145"
+  },
+  {
+    "id": "7573954050379566337",
+    "name": "厳しい先生",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_male_reborn",
+    "resource_id": "7573954050379566337"
+  },
+  {
+    "id": "7527796800649055489",
+    "name": "天真爛漫な娘",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_jp_female_araisan",
+    "resource_id": "7527796800649055489"
+  },
+  {
+    "id": "7571602819283701009",
+    "name": "女性AI",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_female_lengjingnv",
+    "resource_id": "7571602819283701009"
+  },
+  {
+    "id": "7473014770862395905",
+    "name": "暗夜蘿莉",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "zh_female_angela",
+    "resource_id": "7473014770862395905"
+  },
+  {
+    "id": "7473013595417088528",
+    "name": "溫柔姐姐",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "zh_female_inspirational",
+    "resource_id": "7473013595417088528"
+  },
+  {
+    "id": "7510072022672624913",
+    "name": "爽やかメンズ",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_male_huolinan2",
+    "resource_id": "7510072022672624913"
+  },
+  {
+    "id": "7579090923636755729",
+    "name": "穏やかな声優",
+    "locale": "ja-JP",
+    "gender": "Male",
+    "speaker": "ICL_ja_male_bobao2",
+    "resource_id": "7579090923636755729"
+  },
+  {
+    "id": "7588056140685036817",
+    "name": "語音助理",
+    "locale": "zh-CN",
+    "gender": "Male",
+    "speaker": "zh_female_sistermango",
+    "resource_id": "7588056140685036817"
+  },
+  {
+    "id": "7436608032152228353",
+    "name": "電視廣告",
+    "locale": "zh-CN",
+    "gender": "Female",
+    "speaker": "BV433_streaming",
+    "resource_id": "7436608032152228353"
+  }
+]

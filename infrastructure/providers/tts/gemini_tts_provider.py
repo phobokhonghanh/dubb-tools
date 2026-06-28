@@ -9,7 +9,8 @@ from google.genai import types
 
 from core.ports.tts import BaseTTSProvider
 from infrastructure.providers.tts.gemini_audio import build_content_text, convert_to_wav
-from infrastructure.providers.tts.models import GEMINI_TTS_MODEL, GEMINI_VOICES, TtsVoice
+from constants import GEMINI_TTS_MODEL, GEMINI_VOICES
+from infrastructure.providers.tts.models import TtsVoice
 
 
 class GeminiTTSProvider(BaseTTSProvider):

@@ -37,7 +37,7 @@ class DownloadService:
     ) -> DownloadResult:
         with self._lock:
             if self._active:
-                raise RuntimeError("Đang có một tác vụ tải chạy, vui lòng đợi hoàn tất.")
+                raise RuntimeError("Đang tải, vui lòng đợi.")
             self._active = True
             self._stop_event = Event()
 

@@ -11,10 +11,12 @@ import flet as ft
 
 from app.features.base import BaseFeatureView
 from core.use_cases.translate_service import TranslateCallbacks, TranslateService
-from infrastructure.providers.translator import (
-    DEFAULT_TRANSLATE_MODEL,
+from constants import (
     DEFAULT_TRANSLATE_OUTPUT_DIR,
     LANGUAGE_OPTIONS,
+    save_user_output_dir,
+)
+from infrastructure.providers.translator import (
     SrtSegment,
     TranslateProgress,
     TranslateResult,
@@ -28,26 +30,7 @@ CARD_BG = "#1E1E1E"
 SURFACE_BG = "#151515"
 ACCENT = "#00D4FF"
 WARN = "#FF8080"
-MODEL_OPTIONS = [
-    # "gemma-4-31b",
-    # "gemma-4-26b",
-    # "gemini-robotics-er-1.6-preview",
-    # "gemini-robotics-er-1.5-preview",
-    # "gemini-embedding-2",
-    # "gemini-embedding-1",
-    # "gemini-3.5-live-translate",
-    "gemini-3.5-flash",
-    # "gemini-3.1-flash-tts",
-    # "gemini-3.1-flash-lite",
-    # "gemini-3-flash-live",
-    "gemini-3-flash",
-    "gemini-2.5-pro",
-    # "gemini-2.5-flash-tts",
-    # "gemini-2.5-flash-native-audio-dialog",
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-]
+
 
 
 def open_folder(path: str) -> None:
@@ -144,18 +127,15 @@ class TranslateView(BaseFeatureView):
 
     def __init__(self) -> None:
         self.service = TranslateService()
+        self.model_options = self.service.get_model_options()
         config = self.service.load_config()
         self._input_srt: str = ""
-        self._output_dir: str = str(DEFAULT_TRANSLATE_OUTPUT_DIR)
-        self._model: str = str(config.get("model") or DEFAULT_TRANSLATE_MODEL)
-        if self._model not in MODEL_OPTIONS:
-            self._model = DEFAULT_TRANSLATE_MODEL
-        api_keys = config.get("api_keys")
-        self._api_key: str = ""
-        if isinstance(api_keys, dict):
-            self._api_key = str(api_keys.get(self._model) or "")
-        if not self._api_key:
-            self._api_key = str(config.get("gemini_api_key") or "")
+        self._output_dir: str = str(config.get("output_dir") or DEFAULT_TRANSLATE_OUTPUT_DIR)
+        default_model = self.service.get_default_model()
+        self._model: str = str(config.get("model") or default_model)
+        if self._model not in self.model_options:
+            self._model = default_model
+        self._api_key: str = str(config.get("api_key") or config.get("gemini_api_key") or "")
         self._target_language: str = str(config.get("target_language") or "vi")
         self._content_safety: bool = bool(config.get("content_safety"))
         self._status_text: str = ""
@@ -280,7 +260,7 @@ class TranslateView(BaseFeatureView):
         model_dropdown = ft.Dropdown(
             label="Model",
             value=self._model,
-            options=[ft.dropdown.Option(key=value, text=value) for value in MODEL_OPTIONS],
+            options=[ft.dropdown.Option(key=value, text=value) for value in self.model_options],
             bgcolor=SURFACE_BG,
             border_radius=12,
             width=220,
@@ -337,7 +317,7 @@ class TranslateView(BaseFeatureView):
                 ],
             ),
         )
-        result_list = ft.ListView(controls=self._build_result_rows(), spacing=8, height=320)
+        result_list = ft.ListView(controls=self._build_result_rows(), spacing=8, height=480)
         line_count_text = ft.Text(self._line_count_text, color=ft.Colors.BLUE_GREY_100)
         find_field = ft.TextField(
             label="Tìm từ ngữ",
@@ -480,19 +460,19 @@ class TranslateView(BaseFeatureView):
                 return
             self._output_dir = picked
             self._status_text = ""
+            save_user_output_dir(self._output_dir)
             request_ui_refresh()
 
         def reset_output(_: ft.ControlEvent) -> None:
-            self._output_dir = str(DEFAULT_TRANSLATE_OUTPUT_DIR)
+            self._output_dir = "resources/layer/process"
             self._status_text = ""
+            save_user_output_dir(self._output_dir)
             request_ui_refresh()
 
         def on_model_change(event: ft.ControlEvent) -> None:
-            self._model = event.control.value or DEFAULT_TRANSLATE_MODEL
+            self._model = event.control.value or self.service.get_default_model()
             config = self.service.load_config()
-            api_keys = config.get("api_keys")
-            if isinstance(api_keys, dict):
-                self._api_key = str(api_keys.get(self._model) or self._api_key)
+            self._api_key = str(config.get("api_key") or config.get("gemini_api_key") or "")
             request_ui_refresh()
 
         def on_language_change(event: ft.ControlEvent) -> None:
@@ -660,7 +640,7 @@ class TranslateView(BaseFeatureView):
                             spacing=12,
                             controls=[
                                 ft.Row([input_srt_field, choose_input_button], spacing=12),
-                                ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12),
+                                ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12, visible=False),
                                 ft.Row([translate_button], spacing=12),
                             ],
                         ),
@@ -681,7 +661,13 @@ class TranslateView(BaseFeatureView):
                                         line_count_text,
                                     ]
                                 ),
-                                result_list,
+                                ft.Container(
+                                    content=result_list,
+                                    border=ft.Border.all(1, "#333333"),
+                                    border_radius=8,
+                                    padding=8,
+                                    bgcolor=SURFACE_BG,
+                                ),
                                 ft.Row([find_field, replace_field, replace_button], spacing=12),
                                 ft.Row([save_button, open_folder_button], spacing=12),
                                 status_text,

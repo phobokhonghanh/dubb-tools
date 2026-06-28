@@ -39,9 +39,79 @@ class AppShell:
     def build(self, page: ft.Page) -> ft.Control:
         content_holder = ft.Container(expand=True, animate_opacity=220)
 
+        # Import output dir utilities
+        from constants import DEFAULT_OUTPUT_DIR, save_user_output_dir
+
+        path_text = ft.Text(
+            value=str(DEFAULT_OUTPUT_DIR),
+            size=12,
+            color="#888888",
+            overflow=ft.TextOverflow.ELLIPSIS,
+            weight=ft.FontWeight.NORMAL,
+        )
+
+        def pick_directory(e) -> None:
+            from app.features.stt_view import pick_directory_native
+            from constants import DEFAULT_OUTPUT_DIR
+            picked = pick_directory_native(str(DEFAULT_OUTPUT_DIR))
+            if picked:
+                save_user_output_dir(picked)
+                path_text.value = picked
+                path_text.update()
+                
+                # Sync output directories in all features
+                for feature in self.features:
+                    if hasattr(feature, "_output_dir"):
+                        feature._output_dir = picked
+                    elif hasattr(feature, "output_dir"):
+                        feature.output_dir = picked
+                    
+                    # Update active controls if present
+                    if hasattr(feature, "controls") and isinstance(feature.controls, dict):
+                        field = feature.controls.get("output_dir_field")
+                        if field:
+                            try:
+                                field.value = picked
+                                field.update()
+                            except Exception:
+                                pass
+                render_content()
+
+        def on_hover(e) -> None:
+            is_hovered = e.data == "true"
+            path_text.weight = ft.FontWeight.BOLD if is_hovered else ft.FontWeight.NORMAL
+            path_text.color = ft.Colors.WHITE if is_hovered else "#888888"
+            path_text.update()
+
+        output_dir_container = ft.Container(
+            padding=ft.Padding(left=16, right=16, top=8, bottom=16),
+            content=ft.Column(
+                spacing=4,
+                controls=[
+                    ft.Text("Thư mục lưu:", size=11, color="#555555", weight=ft.FontWeight.BOLD),
+                    ft.GestureDetector(
+                        on_tap=pick_directory,
+                        mouse_cursor="click",
+                        content=ft.Container(
+                            content=path_text,
+                            on_hover=on_hover,
+                        )
+                    )
+                ]
+            )
+        )
+
         def render_content() -> None:
             active = self._get_active()
             content_holder.opacity = 0.2
+            
+            # Sync value before rendering
+            from constants import DEFAULT_OUTPUT_DIR
+            if hasattr(active, "_output_dir"):
+                active._output_dir = str(DEFAULT_OUTPUT_DIR)
+            elif hasattr(active, "output_dir"):
+                active.output_dir = str(DEFAULT_OUTPUT_DIR)
+
             content_holder.content = active.build(page)
             content_holder.opacity = 1
             page.update()
@@ -91,6 +161,7 @@ class AppShell:
                                     ),
                                 ),
                                 ft.Container(expand=True, content=nav),
+                                output_dir_container,
                             ],
                         ),
                     ),

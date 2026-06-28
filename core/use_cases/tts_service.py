@@ -11,9 +11,13 @@ from typing import Callable, Optional
 
 from config.paths import Paths
 from core.use_cases.tts_factory import TTSProviderFactory
-from infrastructure.providers.tts import (
+from constants import (
     DEFAULT_TTS_OUTPUT_DIR,
     DEFAULT_TTS_PROVIDER,
+    save_user_output_dir,
+    TTS_CONFIG_PATH,
+)
+from infrastructure.providers.tts import (
     GeneratedSegment,
     TtsProgress,
     TtsResult,
@@ -29,9 +33,6 @@ from infrastructure.providers.tts import (
 )
 
 
-CONFIG_PATH = Paths.get_config_path("tts_config.json")
-
-
 @dataclass
 class TtsCallbacks:
     on_progress: Optional[Callable[[TtsProgress], None]] = None
@@ -41,25 +42,44 @@ class TtsCallbacks:
 
 
 def default_config() -> dict:
+    from constants.tts import DEFAULT_TTS_PROVIDER, DEFAULT_VOICE_IDS
+    model_list = []
+    # edge-tts
+    model_list.append({
+        "provider": "edge-tts",
+        "voice": DEFAULT_VOICE_IDS.get("edge-tts", "vi-VN-NamMinhNeural"),
+        "key": "",
+        "default": DEFAULT_TTS_PROVIDER == "edge-tts"
+    })
+    # gemini-tts
+    model_list.append({
+        "provider": "gemini-tts",
+        "voice": DEFAULT_VOICE_IDS.get("gemini-tts", "Orus"),
+        "key": "",
+        "default": DEFAULT_TTS_PROVIDER == "gemini-tts"
+    })
+    # capcut
+    model_list.append({
+        "provider": "capcut",
+        "voice": DEFAULT_VOICE_IDS.get("capcut", "7102355709945188865"),
+        "key": "",
+        "default": DEFAULT_TTS_PROVIDER == "capcut"
+    })
+
     return {
-        "provider": DEFAULT_TTS_PROVIDER,
-        "language": "vi",
-        "voice_ids": {
-            "edge-tts": "vi-VN-HoaiMyNeural",
-            "gemini-tts": "Orus",
-        },
+        "model": model_list,
         "rate": 0,
-        "volume": 0,
+        "volume": 20,
         "pitch": 0,
         "keep_segments": True,
-        "auto_merge": True,
+        "auto_merge": False,
         "max_workers": 5,
-        "api_keys": {},
+        "language": "vi"
     }
 
 
 class TtsService:
-    def __init__(self, config_path: str | Path = CONFIG_PATH) -> None:
+    def __init__(self, config_path: str | Path = TTS_CONFIG_PATH) -> None:
         self._lock = Lock()
         self._active = False
         self._stop_event = Event()
@@ -72,53 +92,206 @@ class TtsService:
     def stop(self) -> None:
         self._stop_event.set()
 
+    def _flatten_config(self, nested: dict) -> dict:
+        config = {
+            "provider": "edge-tts",
+            "language": nested.get("language", "vi"),
+            "voice_id": "",
+            "rate": nested.get("rate", 0),
+            "volume": nested.get("volume", 20),
+            "pitch": nested.get("pitch", 0),
+            "keep_segments": nested.get("keep_segments", True),
+            "auto_merge": nested.get("auto_merge", False),
+            "max_workers": nested.get("max_workers", 5),
+            "api_keys": {}
+        }
+        model_list = nested.get("model", [])
+        from utils import crypto
+        for item in model_list:
+            if not isinstance(item, dict):
+                continue
+            provider = item.get("provider", "")
+            voice = item.get("voice", "")
+            is_default = item.get("default", False)
+            key = item.get("key", "")
+            
+            dec_key = ""
+            if key:
+                dec = crypto.decrypt(key)
+                dec_key = dec if dec is not None else key
+            
+            if is_default:
+                config["provider"] = provider
+                config["voice_id"] = voice
+            config["api_keys"][provider] = dec_key
+        return config
+
+    def _convert_legacy_loaded(self, loaded: dict) -> dict:
+        config = {
+            "provider": loaded.get("provider") or "edge-tts",
+            "language": loaded.get("language") or "vi",
+            "voice_id": loaded.get("voice_id") or "",
+            "rate": loaded.get("rate") or 0,
+            "volume": loaded.get("volume") or 20,
+            "pitch": loaded.get("pitch") or 0,
+            "keep_segments": loaded.get("keep_segments", True),
+            "auto_merge": loaded.get("auto_merge", False),
+            "max_workers": loaded.get("max_workers") or 5,
+            "api_keys": {}
+        }
+
+        if not config["voice_id"] and "voice_ids" in loaded and isinstance(loaded["voice_ids"], dict):
+            config["voice_id"] = loaded["voice_ids"].get(config["provider"], "")
+
+        if not config["voice_id"]:
+            from constants.tts import DEFAULT_VOICE_IDS
+            config["voice_id"] = DEFAULT_VOICE_IDS.get(config["provider"], "")
+
+        api_keys = loaded.get("api_keys", {})
+        if isinstance(api_keys, dict):
+            from utils import crypto
+            decrypted_keys = {}
+            for provider, key in api_keys.items():
+                if isinstance(key, str) and key:
+                    dec = crypto.decrypt(key)
+                    decrypted_keys[provider] = dec if dec is not None else key
+                else:
+                    decrypted_keys[provider] = key
+            config["api_keys"] = decrypted_keys
+        
+        return config
+
+    def _write_flat_config_to_file(self, config: dict) -> None:
+        from constants.tts import DEFAULT_VOICE_IDS
+        model_list = []
+        providers_list = ["edge-tts", "gemini-tts", "capcut"]
+        for p in providers_list:
+            is_active = (p == config.get("provider", "edge-tts"))
+            
+            voice = ""
+            if is_active:
+                voice = config.get("voice_id", "")
+            else:
+                if "voice_ids" in config and isinstance(config["voice_ids"], dict):
+                    voice = config["voice_ids"].get(p, "")
+                
+            if not voice:
+                voice = DEFAULT_VOICE_IDS.get(p, "")
+
+            raw_key = config.get("api_keys", {}).get(p, "")
+            encrypted_key = ""
+            if raw_key:
+                from utils import crypto
+                encrypted_key = crypto.encrypt(raw_key)
+
+            model_list.append({
+                "provider": p,
+                "voice": voice,
+                "key": encrypted_key,
+                "default": is_active
+            })
+
+        output_data = {
+            "model": model_list,
+            "rate": config.get("rate", 0),
+            "volume": config.get("volume", 20),
+            "pitch": config.get("pitch", 0),
+            "keep_segments": config.get("keep_segments", True),
+            "auto_merge": config.get("auto_merge", False),
+            "max_workers": config.get("max_workers", 5),
+            "language": config.get("language", "vi")
+        }
+
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text(json.dumps(output_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
     def load_config(self) -> dict:
-        config = default_config()
+        config = {
+            "provider": "edge-tts",
+            "language": "vi",
+            "voice_id": "",
+            "rate": 0,
+            "volume": 20,
+            "pitch": 0,
+            "keep_segments": True,
+            "auto_merge": False,
+            "max_workers": 5,
+            "api_keys": {}
+        }
+        
         if not self.config_path.exists():
-            return config
+            return self._flatten_config(default_config())
+            
         try:
             loaded = json.loads(self.config_path.read_text(encoding="utf-8"))
         except Exception:
-            return config
-        if isinstance(loaded, dict):
-            config.update(loaded)
-        if not isinstance(config.get("voice_ids"), dict):
-            config["voice_ids"] = default_config()["voice_ids"]
-        if not isinstance(config.get("api_keys"), dict):
-            config["api_keys"] = {}
-        
-        # Decrypt API Keys
+            return self._flatten_config(default_config())
+
+        if not isinstance(loaded, dict):
+            return self._flatten_config(default_config())
+
+        # Support migrating old configuration format
+        if "model" not in loaded:
+            legacy_flat = self._convert_legacy_loaded(loaded)
+            try:
+                self._write_flat_config_to_file(legacy_flat)
+            except Exception:
+                pass
+            return legacy_flat
+
+        for k in ["rate", "volume", "pitch", "keep_segments", "auto_merge", "max_workers", "language"]:
+            if k in loaded:
+                config[k] = loaded[k]
+
+        model_list = loaded.get("model", [])
+        decrypted_keys = {}
+        active_provider = "edge-tts"
+        active_voice = ""
+
         from utils import crypto
-        api_keys = config.get("api_keys")
-        if isinstance(api_keys, dict):
-            decrypted_keys = {}
-            for k, v in api_keys.items():
-                if v:
-                    decrypted = crypto.decrypt(v)
-                    decrypted_keys[k] = decrypted if decrypted is not None else v
-                else:
-                    decrypted_keys[k] = v
-            config["api_keys"] = decrypted_keys
+        for item in model_list:
+            if not isinstance(item, dict):
+                continue
+            provider = item.get("provider", "")
+            voice = item.get("voice", "")
+            encrypted_key = item.get("key", "")
+            is_default = item.get("default", False)
+
+            decrypted_key = ""
+            if encrypted_key:
+                dec = crypto.decrypt(encrypted_key)
+                decrypted_key = dec if dec is not None else encrypted_key
+            decrypted_keys[provider] = decrypted_key
+
+            if is_default:
+                active_provider = provider
+                active_voice = voice
+
+        config["provider"] = active_provider
+        config["voice_id"] = active_voice
+        config["api_keys"] = decrypted_keys
+
+        if not config["voice_id"]:
+            from constants.tts import DEFAULT_VOICE_IDS
+            config["voice_id"] = DEFAULT_VOICE_IDS.get(config["provider"], "")
+
         return config
 
     def save_config(self, config: dict) -> None:
-        data = self.load_config()
-        data.update({key: value for key, value in config.items() if key in data})
+        current = self.load_config()
         
-        # Encrypt API Keys before saving
-        from utils import crypto
-        api_keys = data.get("api_keys")
-        if isinstance(api_keys, dict):
-            encrypted_keys = {}
-            for k, v in api_keys.items():
-                if v:
-                    encrypted_keys[k] = crypto.encrypt(v)
-                else:
-                    encrypted_keys[k] = v
-            data["api_keys"] = encrypted_keys
+        for k in ["language", "rate", "volume", "pitch", "keep_segments", "auto_merge", "max_workers"]:
+            if k in config:
+                current[k] = config[k]
+        if "provider" in config:
+            current["provider"] = config["provider"]
+        if "voice_id" in config:
+            current["voice_id"] = config["voice_id"]
+        
+        if "api_keys" in config and isinstance(config["api_keys"], dict):
+            current["api_keys"].update(config["api_keys"])
 
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._write_flat_config_to_file(current)
 
     def list_voices(self, *, provider: str, language: str, api_key: str | None = None) -> list[TtsVoice]:
         tts = TTSProviderFactory.get_provider(provider, api_key=api_key or "placeholder")
@@ -127,27 +300,27 @@ class TtsService:
     def run_job(
         self,
         *,
-        input_srt: str,
+        input_srt: str = "",
         input_text: Optional[str] = None,
         input_mode: str = "file",
-        output_dir: str,
-        provider: str,
-        language: str,
-        voice_id: str,
-        rate: int,
-        volume: int,
-        pitch: int,
-        keep_segments: bool,
+        output_dir: str = "",
+        provider: str = "",
+        language: str = "",
+        voice_id: str = "",
+        rate: int = 0,
+        volume: int = 0,
+        pitch: int = 0,
+        keep_segments: bool = True,
         api_key: str | None = None,
         auto_merge: bool = True,
         max_workers: int = 5,
-        callbacks: Optional[TtsCallbacks] = None,
+        callbacks: TtsCallbacks = None,
     ) -> TtsResult:
         with self._lock:
             if self._active:
-                raise RuntimeError("Đang có tác vụ lồng tiếng chạy, vui lòng đợi hoàn tất.")
+                return TtsResult(ok=False, error_message="Service is busy")
             self._active = True
-            self._stop_event = Event()
+            self._stop_event.clear()
 
         callbacks = callbacks or TtsCallbacks()
         started_at = time.monotonic()
@@ -174,16 +347,15 @@ class TtsService:
             output_file = out_dir / f"{source_stem}_speech.mp3"
 
             config = self.load_config()
-            voice_ids = dict(config.get("voice_ids") or {})
-            voice_ids[provider] = voice_id
             api_keys = dict(config.get("api_keys") or {})
             if api_key:
                 api_keys[provider] = api_key
+            save_user_output_dir(output_dir)
             self.save_config(
                 {
                     "provider": provider,
                     "language": language,
-                    "voice_ids": voice_ids,
+                    "voice_id": voice_id,
                     "rate": rate,
                     "volume": volume,
                     "pitch": pitch,

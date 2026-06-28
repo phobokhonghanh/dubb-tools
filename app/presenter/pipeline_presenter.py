@@ -18,8 +18,8 @@ from core.use_cases.pipeline_orchestrator import (
     PipelineResult,
     PipelineStepStatus,
 )
-from infrastructure.providers.translator import DEFAULT_TRANSLATE_MODEL
-from infrastructure.providers.tts import DEFAULT_TTS_PROVIDER
+
+from constants import DEFAULT_TTS_PROVIDER
 
 
 def open_folder(path: str) -> None:
@@ -64,12 +64,11 @@ class PipelinePresenter:
         self.view.translate_batch_enabled = bool(config.get("translate_batch_enabled", True))
         self.view.translate_batch_size = str(config.get("translate_batch_size") or "10")
         self.view.stt_auto_normalize_enabled = bool(config.get("stt_auto_normalize_enabled", False))
-        self.view.translate_model = str(config.get("translate_model") or translator_config.get("model") or DEFAULT_TRANSLATE_MODEL)
+        self.view.translate_model = str(config.get("translate_model") or translator_config.get("model") or self.translate_service.get_default_model())
         
-        api_keys = translator_config.get("api_keys") if isinstance(translator_config.get("api_keys"), dict) else {}
         self.view.translate_api_key = str(
             config.get("translate_api_key")
-            or api_keys.get(self.view.translate_model)
+            or translator_config.get("api_key")
             or translator_config.get("gemini_api_key")
             or ""
         )
@@ -85,8 +84,9 @@ class PipelinePresenter:
 
         self.view.tts_provider = str(config.get("tts_provider") or tts_config.get("provider") or DEFAULT_TTS_PROVIDER)
         self.view.tts_language = str(config.get("tts_language") or tts_config.get("language") or "vi")
-        voice_ids = tts_config.get("voice_ids") if isinstance(tts_config.get("voice_ids"), dict) else {}
-        self.view.tts_voice_id = str(config.get("tts_voice_id") or voice_ids.get(self.view.tts_provider) or "")
+        from constants.tts import DEFAULT_VOICE_IDS
+        default_voice = DEFAULT_VOICE_IDS.get(self.view.tts_provider, "")
+        self.view.tts_voice_id = str(config.get("tts_voice_id") or tts_config.get("voice_id") or default_voice)
         self.view.tts_rate = int(config.get("tts_rate") or tts_config.get("rate") or 0)
         self.view.tts_volume = int(config.get("tts_volume") or tts_config.get("volume") or 0)
         self.view.tts_pitch = int(config.get("tts_pitch") or tts_config.get("pitch") or 0)
@@ -552,7 +552,7 @@ class PipelinePresenter:
         try:
             translate_config = {
                 "model": self.view.translate_model,
-                "gemini_api_key": self.view.translate_api_key,
+                "api_key": self.view.translate_api_key,
                 "target_language": self.view.translate_target_language,
                 "content_safety": self.view.translate_content_safety,
             }
@@ -577,10 +577,8 @@ class PipelinePresenter:
                 api_keys["capcut"] = self.view.tts_api_key
             tts_config["api_keys"] = api_keys
             
-            voice_ids = dict(current_tts_config.get("voice_ids") or {})
             if self.view.tts_voice_id:
-                voice_ids[self.view.tts_provider] = self.view.tts_voice_id
-            tts_config["voice_ids"] = voice_ids
+                tts_config["voice_id"] = self.view.tts_voice_id
 
             self.tts_service.save_config(tts_config)
         except Exception:

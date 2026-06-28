@@ -17,13 +17,11 @@ from core.use_cases.pipeline_orchestrator import (
     STEP_TITLES,
     PipelineStepStatus,
 )
-from infrastructure.providers.translator import (
+from constants import (
     LANGUAGE_OPTIONS as TRANSLATE_LANGUAGES,
     DEFAULT_TRANSLATE_MODEL,
-)
-from infrastructure.providers.tts import (
-    LANGUAGE_OPTIONS as TTS_LANGUAGES,
     DEFAULT_TTS_PROVIDER,
+    TTS_LANGUAGE_OPTIONS as TTS_LANGUAGES,
 )
 
 
@@ -515,8 +513,8 @@ class PipelineView(BaseFeatureView):
         retry_button = ft.OutlinedButton("Chạy lại từ bước lỗi", icon=ft.Icons.RESTART_ALT, visible=self.presenter.can_retry())
         stop_button = ft.OutlinedButton("Dừng", icon=ft.Icons.STOP, disabled=True)
         open_job_button = ft.OutlinedButton("Mở thư mục Job", icon=ft.Icons.FOLDER_OPEN, visible=bool(self.job_dir))
-        log_list = ft.ListView(spacing=3, height=260, auto_scroll=True)
-        step_list = ft.ListView(spacing=8, height=340)
+        log_list = ft.ListView(spacing=3, height=450, auto_scroll=True)
+        step_list = ft.ListView(spacing=8, height=450)
 
         choose_audio_button = ft.OutlinedButton("Chọn audio", icon=ft.Icons.AUDIO_FILE)
         choose_srt_button = ft.OutlinedButton("Chọn SRT", icon=ft.Icons.SUBTITLES)
@@ -940,7 +938,13 @@ class PipelineView(BaseFeatureView):
                                     spacing=10,
                                     controls=[
                                         ft.Text("Nhật Ký Thực Thi", size=18, weight=ft.FontWeight.BOLD),
-                                        ft.Container(bgcolor="#0E0E0E", border_radius=8, padding=12, content=log_list),
+                                        ft.Container(
+                                            bgcolor="#0E0E0E",
+                                            border=ft.Border.all(1, "#333333"),
+                                            border_radius=8,
+                                            padding=12,
+                                            content=log_list,
+                                        ),
                                     ],
                                 ),
                             ),
@@ -953,7 +957,13 @@ class PipelineView(BaseFeatureView):
                                     spacing=10,
                                     controls=[
                                         ft.Text("Kết Quả Từng Bước", size=18, weight=ft.FontWeight.BOLD),
-                                        step_list,
+                                        ft.Container(
+                                            bgcolor=SURFACE_BG,
+                                            border=ft.Border.all(1, "#333333"),
+                                            border_radius=8,
+                                            padding=8,
+                                            content=step_list,
+                                        ),
                                     ],
                                 ),
                             ),

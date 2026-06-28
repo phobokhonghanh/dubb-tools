@@ -565,7 +565,7 @@ class MergerView(BaseFeatureView):
                         content=ft.Column(
                             spacing=12,
                             controls=[
-                                ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12),
+                                ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12, visible=False),
                                 ft.Row([output_name_field], spacing=12),
                             ],
                         ),

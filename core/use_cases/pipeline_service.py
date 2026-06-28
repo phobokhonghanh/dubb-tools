@@ -19,8 +19,8 @@ from core.use_cases.pipeline_orchestrator import (
 )
 
 
-CONFIG_PATH = Paths.get_config_path("pipeline_config.json")
-LAST_RUN_PATH = Paths.get_config_path("pipeline_last_run.json")
+CONFIG_PATH = Paths.CONFIG_DIR / "user" / "pipeline_config.json"
+LAST_RUN_PATH = Paths.CONFIG_DIR / "user" / "pipeline_last_run.json"
 
 
 @dataclass
@@ -69,14 +69,50 @@ class PipelineService:
             loaded = json.loads(self.config_path.read_text(encoding="utf-8"))
         except Exception:
             return config
+
         if isinstance(loaded, dict):
             config.update({key: value for key, value in loaded.items() if key in config})
+
+        # Giải mã translate_api_key nếu có
+        enc_translate_key = config.get("translate_api_key", "")
+        dec_translate_key = ""
+        if enc_translate_key:
+            from utils import crypto
+            dec = crypto.decrypt(enc_translate_key)
+            dec_translate_key = dec if dec is not None else enc_translate_key
+        config["translate_api_key"] = dec_translate_key
+
+        # Giải mã tts_api_key nếu có
+        enc_tts_key = config.get("tts_api_key", "")
+        dec_tts_key = ""
+        if enc_tts_key:
+            from utils import crypto
+            dec = crypto.decrypt(enc_tts_key)
+            dec_tts_key = dec if dec is not None else enc_tts_key
+        config["tts_api_key"] = dec_tts_key
+
         return config
 
     def save_config(self, config: PipelineConfig | dict) -> None:
         data = self.load_config()
         values = asdict(config) if isinstance(config, PipelineConfig) else dict(config)
         data.update({key: value for key, value in values.items() if key in data})
+
+        # Mã hóa các khóa bảo mật trực tiếp
+        translate_api_key = data.get("translate_api_key", "")
+        tts_api_key = data.get("tts_api_key", "")
+
+        from utils import crypto
+        if translate_api_key:
+            data["translate_api_key"] = crypto.encrypt(translate_api_key)
+        else:
+            data["translate_api_key"] = ""
+
+        if tts_api_key:
+            data["tts_api_key"] = crypto.encrypt(tts_api_key)
+        else:
+            data["tts_api_key"] = ""
+
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 

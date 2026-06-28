@@ -228,11 +228,10 @@ class CapCutTTSProvider(BaseTTSProvider):
                 else:
                     self.cookie = api_key
 
-
     def _load_voices_config(self) -> tuple[list[TtsVoice], dict]:
-        voices_path = Path("config/capcut_voices.json")
+        voices_path = Path("config/system/capcut_voices.json")
         if not voices_path.exists():
-            voices_path = Path(__file__).resolve().parents[3] / "config" / "capcut_voices.json"
+            voices_path = Path(__file__).resolve().parents[3] / "config" / "system" / "capcut_voices.json"
 
         if not voices_path.exists():
             raise FileNotFoundError(f"Không tìm thấy file cấu hình giọng nói tại {voices_path}")
@@ -257,11 +256,10 @@ class CapCutTTSProvider(BaseTTSProvider):
                     "resource_id": item["id"],
                 }
             return voices, mapping
-
     def _load_device_config(self) -> dict:
-        device_path = Path("config/capcut_device.json")
+        device_path = Path("config/user/capcut_device.json")
         if not device_path.exists():
-            device_path = Path(__file__).resolve().parents[3] / "config" / "capcut_device.json"
+            device_path = Path(__file__).resolve().parents[3] / "config" / "user" / "capcut_device.json"
 
         if not device_path.exists():
             raise FileNotFoundError(f"Không tìm thấy file cấu hình thiết bị tại {device_path}")

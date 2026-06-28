@@ -11,11 +11,13 @@ import flet as ft
 
 from app.features.base import BaseFeatureView
 from app.presenter.tts_presenter import TtsPresenter
-from infrastructure.providers.tts import (
+from constants import (
     DEFAULT_TTS_OUTPUT_DIR,
     DEFAULT_TTS_PROVIDER,
+    TTS_LANGUAGE_OPTIONS as LANGUAGE_OPTIONS,
+)
+from infrastructure.providers.tts import (
     GeneratedSegment,
-    LANGUAGE_OPTIONS,
 )
 
 
@@ -901,7 +903,7 @@ class TtsView(BaseFeatureView):
                 ],
             ),
         )
-        result_list = ft.ListView(controls=self._build_result_rows(), spacing=8, height=320)
+        result_list = ft.ListView(controls=self._build_result_rows(), spacing=8, height=480)
         line_count_text = ft.Text(self.line_count_text, color=ft.Colors.BLUE_GREY_100)
 
         choose_input_button = ft.OutlinedButton("Chọn SRT", icon=ft.Icons.SUBTITLES)
@@ -1203,7 +1205,7 @@ class TtsView(BaseFeatureView):
                                 ft.Row([input_mode_dropdown], spacing=12),
                                 input_srt_row,
                                 input_text_row,
-                                ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12),
+                                ft.Row([output_dir_field, choose_output_button, reset_output_button], spacing=12, visible=False),
                                 ft.Row([start_button, merge_button, open_folder_button], spacing=12),
                             ],
                         ),
@@ -1226,7 +1228,13 @@ class TtsView(BaseFeatureView):
                                         line_count_text,
                                     ]
                                 ),
-                                result_list,
+                                ft.Container(
+                                    content=result_list,
+                                    border=ft.Border.all(1, "#333333"),
+                                    border_radius=8,
+                                    padding=8,
+                                    bgcolor=SURFACE_BG,
+                                ),
                                 status_text,
                             ],
                         ),
